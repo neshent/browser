@@ -4,6 +4,12 @@
 #include <ctype.h>
 #include <stdio.h>
 
+/* Windows / MinGW compatibility */
+#ifdef _WIN32
+#  define strncasecmp _strnicmp
+#  define strcasecmp  _stricmp
+#endif
+
 /* ------------------------------------------------------------------ */
 /*  Entity table (most common HTML5 named entities)                    */
 /* ------------------------------------------------------------------ */

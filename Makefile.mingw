@@ -1,0 +1,54 @@
+# ===========================================================================
+#  Nishant Browser — MinGW64 / MSYS2 Makefile
+#  Run from inside C:\msys64\mingw64 shell:
+#    make -f Makefile.mingw
+# ===========================================================================
+
+CC      = gcc
+BINARY  = nishant-browser.exe
+
+PKG     = pkg-config
+
+GTK_CFLAGS  := $(shell $(PKG) --cflags gtk+-3.0)
+GTK_LIBS    := $(shell $(PKG) --libs   gtk+-3.0)
+CAIRO_CFLAGS:= $(shell $(PKG) --cflags cairo)
+CAIRO_LIBS  := $(shell $(PKG) --libs   cairo)
+PANGO_CFLAGS:= $(shell $(PKG) --cflags pangocairo)
+PANGO_LIBS  := $(shell $(PKG) --libs   pangocairo)
+
+CFLAGS = -std=gnu11 -O2 -Wall -Wextra -Wno-unused-parameter \
+         -Wno-unused-function \
+         $(GTK_CFLAGS) $(CAIRO_CFLAGS) $(PANGO_CFLAGS) \
+         -Isrc -D_WIN32_WINNT=0x0601
+
+LIBS   = $(GTK_LIBS) $(CAIRO_LIBS) $(PANGO_LIBS) \
+         -lws2_32 -lm -lpthread -mwindows
+
+SRCS = src/main.c                \
+       src/util/nb_string.c      \
+       src/util/nb_arena.c       \
+       src/net/http.c            \
+       src/html/dom.c            \
+       src/html/html_parser.c    \
+       src/css/css.c             \
+       src/layout/layout.c       \
+       src/render/render.c       \
+       src/js/js_engine.c        \
+       src/ui/browser.c
+
+OBJS = $(SRCS:.c=.o)
+
+.PHONY: all clean
+
+all: $(BINARY)
+
+$(BINARY): $(OBJS)
+	$(CC) $(CFLAGS) -o $@ $^ $(LIBS)
+	@echo ""
+	@echo "=== Build successful: $(BINARY) ==="
+
+%.o: %.c
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+clean:
+	rm -f $(OBJS) $(BINARY)

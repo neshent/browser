@@ -4,6 +4,12 @@
 #include <string.h>
 #include <ctype.h>
 
+/* Windows / MinGW compatibility */
+#ifdef _WIN32
+#  define strcasecmp  _stricmp
+#  define strncasecmp _strnicmp
+#endif
+
 #ifdef _WIN32
   #include <winsock2.h>
   #include <ws2tcpip.h>

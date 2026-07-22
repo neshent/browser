@@ -5,6 +5,12 @@
 #include <ctype.h>
 #include <math.h>
 
+/* Windows / MinGW compatibility */
+#ifdef _WIN32
+#  define strcasecmp  _stricmp
+#  define strncasecmp _strnicmp
+#endif
+
 /* ------------------------------------------------------------------ */
 /*  Color parsing                                                      */
 /* ------------------------------------------------------------------ */

@@ -1,8 +1,9 @@
-#include "browser.h"
+﻿#include "browser.h"
 #include "../html/html_parser.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#include <math.h>
 #include <pthread.h>
 
 /* ------------------------------------------------------------------ */
@@ -29,7 +30,7 @@ static gboolean on_key_press(GtkWidget *w, GdkEventKey *ev, gpointer data);
 static gboolean timer_pump_cb(gpointer data);
 
 /* ------------------------------------------------------------------ */
-/*  CSS colour for toolbar — classic grey, visible, no buried menus   */
+/*  CSS colour for toolbar â€” classic grey, visible, no buried menus   */
 /* ------------------------------------------------------------------ */
 static const char *UI_CSS =
     "window { background-color: #d4d0c8; }"
@@ -38,6 +39,16 @@ static const char *UI_CSS =
     ".nb-btn     { padding: 2px 8px; font-size: 12px; }"
     ".nb-status  { font-size: 11px; padding: 1px 6px; background-color: #c8c4bc; border-top: 1px solid #aaa; }"
     ".nb-find    { padding: 2px 4px; background-color: #ffffc0; border-top: 1px solid #bba; }";
+
+/* ------------------------------------------------------------------ */
+/*  Tab close button callback                                          */
+/* ------------------------------------------------------------------ */
+static void on_tab_close_clicked(GtkButton *btn, gpointer d) {
+    (void)d;
+    NbTab     *tab = (NbTab*)g_object_get_data(G_OBJECT(btn), "tab");
+    NbBrowser *br  = (NbBrowser*)g_object_get_data(G_OBJECT(btn), "browser");
+    if (tab && br) nb_browser_close_tab(br, tab);
+}
 
 /* ------------------------------------------------------------------ */
 /*  Tab lifecycle                                                       */
@@ -79,12 +90,7 @@ static NbTab *tab_new(NbBrowser *b, const char *url) {
     gtk_button_set_relief(GTK_BUTTON(close_btn), GTK_RELIEF_NONE);
     g_object_set_data(G_OBJECT(close_btn), "tab", t);
     g_object_set_data(G_OBJECT(close_btn), "browser", b);
-    g_signal_connect(close_btn, "clicked",
-        G_CALLBACK(+[](GtkButton *btn, gpointer d){
-            NbTab *tab  = (NbTab*)g_object_get_data(G_OBJECT(btn),"tab");
-            NbBrowser *br=(NbBrowser*)g_object_get_data(G_OBJECT(btn),"browser");
-            nb_browser_close_tab(br, tab);
-        }), NULL);
+    g_signal_connect(close_btn, "clicked", G_CALLBACK(on_tab_close_clicked), NULL);
     gtk_box_pack_start(GTK_BOX(tab_hbox), t->tab_label,  TRUE,  TRUE,  0);
     gtk_box_pack_start(GTK_BOX(tab_hbox), close_btn,      FALSE, FALSE, 0);
     gtk_widget_show_all(tab_hbox);
@@ -176,8 +182,8 @@ static gboolean load_done_cb(gpointer data) {
 
     tab->doc      = r->doc;
     tab->page_css = r->css;
-    strncpy(tab->url,   r->url,   sizeof(tab->url)-1);
-    strncpy(tab->error, r->error, sizeof(tab->error)-1);
+    strncpy(tab->url,       r->url,   sizeof(tab->url)-1);
+    strncpy(tab->error_msg, r->error, sizeof(tab->error_msg)-1);
 
     if (r->doc && !r->error[0]) {
         /* Apply styles */
@@ -215,7 +221,7 @@ static gboolean load_done_cb(gpointer data) {
         status_set(b, "Done");
     } else {
         tab_set_title(b, tab, "Error");
-        status_set(b, tab->error[0] ? tab->error : "Unknown error");
+        status_set(b, tab->error_msg[0] ? tab->error_msg : "Unknown error");
     }
 
     tab->loading = 0;
@@ -292,7 +298,7 @@ static void *load_thread(void *arg) {
                             if (c->type == NODE_TEXT && c->text)
                                 nb_str_appends(&combined_css, c->text);
                     }
-                    /* <link rel="stylesheet"> — fetch inline (best-effort) */
+                    /* <link rel="stylesheet"> â€” fetch inline (best-effort) */
                     if (strcmp(n->tag, "link") == 0) {
                         const char *rel  = nb_attr_val(n, "rel");
                         const char *href = nb_attr_val(n, "href");
@@ -438,11 +444,11 @@ void nb_browser_close_tab(NbBrowser *b, NbTab *tab) {
 }
 
 /* ------------------------------------------------------------------ */
-/*  JS callbacks (called from JS thread → must post to GTK main)      */
+/*  JS callbacks (called from JS thread â†’ must post to GTK main)      */
 /* ------------------------------------------------------------------ */
 static void nav_cb_js(const char *url, void *userdata) {
     NbTab *tab = (NbTab*)userdata;
-    /* We need the browser pointer — store it on the tab */
+    /* We need the browser pointer â€” store it on the tab */
     /* For now navigate via global; in real code store b* on tab */
     (void)tab; (void)url;
 }
@@ -468,8 +474,8 @@ static gboolean on_draw(GtkWidget *w, cairo_t *cr, gpointer data) {
         nb_render_loading_page(cr, vw, vh, tab->url);
         return FALSE;
     }
-    if (tab->error[0]) {
-        nb_render_error_page(cr, vw, vh, tab->error);
+    if (tab->error_msg[0]) {
+        nb_render_error_page(cr, vw, vh, tab->error_msg);
         return FALSE;
     }
     if (!tab->layout) {
@@ -580,7 +586,7 @@ static gboolean on_button_press(GtkWidget *w, GdkEventButton *ev, gpointer data)
         if (strcmp(n->tag,"a")==0) {
             const char *href = nb_attr_val(n,"href");
             if (href && href[0]) {
-                /* Need browser pointer — store it globally for now */
+                /* Need browser pointer â€” store it globally for now */
                 /* Actual navigation happens via the stored browser pointer */
             }
             break;
@@ -597,31 +603,31 @@ static gboolean on_button_press(GtkWidget *w, GdkEventButton *ev, gpointer data)
 static gboolean on_key_press(GtkWidget *w, GdkEventKey *ev, gpointer data) {
     NbBrowser *b = (NbBrowser*)data;
     if (!b) return FALSE;
-    /* Ctrl+L — focus URL bar */
+    /* Ctrl+L â€” focus URL bar */
     if ((ev->state & GDK_CONTROL_MASK) && ev->keyval == GDK_KEY_l) {
         gtk_widget_grab_focus(b->url_entry);
         gtk_editable_select_region(GTK_EDITABLE(b->url_entry), 0, -1);
         return TRUE;
     }
-    /* Ctrl+T — new tab */
+    /* Ctrl+T â€” new tab */
     if ((ev->state & GDK_CONTROL_MASK) && ev->keyval == GDK_KEY_t) {
         nb_browser_new_tab(b, "about:blank"); return TRUE;
     }
-    /* Ctrl+W — close tab */
+    /* Ctrl+W â€” close tab */
     if ((ev->state & GDK_CONTROL_MASK) && ev->keyval == GDK_KEY_w) {
         nb_browser_close_tab(b, b->active_tab); return TRUE;
     }
-    /* Ctrl+R — reload */
+    /* Ctrl+R â€” reload */
     if ((ev->state & GDK_CONTROL_MASK) && ev->keyval == GDK_KEY_r) {
         nb_browser_reload(b); return TRUE;
     }
-    /* F5 — reload */
+    /* F5 â€” reload */
     if (ev->keyval == GDK_KEY_F5) { nb_browser_reload(b); return TRUE; }
-    /* Alt+Left — back */
+    /* Alt+Left â€” back */
     if ((ev->state & GDK_MOD1_MASK) && ev->keyval == GDK_KEY_Left) {
         nb_browser_go_back(b); return TRUE;
     }
-    /* Alt+Right — forward */
+    /* Alt+Right â€” forward */
     if ((ev->state & GDK_MOD1_MASK) && ev->keyval == GDK_KEY_Right) {
         nb_browser_go_forward(b); return TRUE;
     }
@@ -682,7 +688,7 @@ static void build_ui(NbBrowser *b) {
     gtk_container_add(GTK_CONTAINER(b->window), b->vbox_main);
 
     /* ================================================================
-     *  TOOLBAR — all controls visible, nothing hidden in menus
+     *  TOOLBAR â€” all controls visible, nothing hidden in menus
      * ================================================================ */
     b->toolbar = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 3);
     gtk_style_context_add_class(gtk_widget_get_style_context(b->toolbar), "nb-toolbar");
@@ -703,7 +709,7 @@ static void build_ui(NbBrowser *b) {
     /* Separator */
     gtk_box_pack_start(GTK_BOX(b->toolbar), gtk_separator_new(GTK_ORIENTATION_VERTICAL), FALSE,FALSE,2);
 
-    /* URL bar — expands to fill space */
+    /* URL bar â€” expands to fill space */
     b->url_entry = gtk_entry_new();
     gtk_widget_set_tooltip_text(b->url_entry, "Address bar (Ctrl+L)");
     gtk_style_context_add_class(gtk_widget_get_style_context(b->url_entry), "nb-urlbar");
@@ -716,7 +722,7 @@ static void build_ui(NbBrowser *b) {
     /* Separator */
     gtk_box_pack_start(GTK_BOX(b->toolbar), gtk_separator_new(GTK_ORIENTATION_VERTICAL), FALSE,FALSE,2);
 
-    /* Zoom controls — always visible */
+    /* Zoom controls â€” always visible */
     b->btn_zoom_out   = make_tb_button("zoom-out-symbolic",     "Zoom out (Ctrl+-)");
     b->zoom_label     = make_tb_label("100%");
     b->btn_zoom_in    = make_tb_button("zoom-in-symbolic",      "Zoom in (Ctrl++)");
@@ -755,7 +761,7 @@ static void build_ui(NbBrowser *b) {
     g_signal_connect_swapped(fcl,"clicked",G_CALLBACK(gtk_widget_hide), b->find_bar);
 
     /* ================================================================
-     *  STATUS BAR — always visible, shows URL on hover + load state
+     *  STATUS BAR â€” always visible, shows URL on hover + load state
      * ================================================================ */
     GtkWidget *status_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4);
     gtk_style_context_add_class(gtk_widget_get_style_context(status_box), "nb-status");
