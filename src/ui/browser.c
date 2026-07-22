@@ -26,12 +26,12 @@ NbTheme nb_theme_default(void) {
     NbTheme t = {0};
     t.ui_scale    = 1.0f;
 
-    /* Modern dark chrome */
-    t.chrome_r = t.chrome_g = t.chrome_b = 0.15f;
-    t.chrome_text_r = t.chrome_text_g = t.chrome_text_b = 0.95f;
-    t.accent_r = 0.2f; t.accent_g = 0.5f; t.accent_b = 1.0f;
-    t.tab_bg_r = t.tab_bg_g = t.tab_bg_b = 0.20f;
-    t.page_bg_r = t.page_bg_g = t.page_bg_b = 0.13f;
+    /* Windows 98 / classic silver chrome */
+    t.chrome_r = 0.753f; t.chrome_g = 0.753f; t.chrome_b = 0.753f; /* #C0C0C0 */
+    t.chrome_text_r = 0.0f; t.chrome_text_g = 0.0f; t.chrome_text_b = 0.0f;
+    t.accent_r = 0.0f; t.accent_g = 0.0f; t.accent_b = 0.502f;  /* classic blue title */
+    t.tab_bg_r = 0.753f; t.tab_bg_g = 0.753f; t.tab_bg_b = 0.753f;
+    t.page_bg_r = 1.0f; t.page_bg_g = 1.0f; t.page_bg_b = 1.0f;
 
     strcpy(t.ui_font, "Sans");
     t.ui_font_size = 11.0f;
@@ -41,7 +41,7 @@ NbTheme nb_theme_default(void) {
     t.compact_toolbar    = 0;
     t.window_w = 1200; t.window_h = 800;
     t.maximized = 0;
-    t.corner_radius = 8;
+    t.corner_radius = 0;  /* no rounded corners — classic look */
     return t;
 }
 
@@ -390,8 +390,21 @@ static void repaint_cb_js(void *userdata) {
 }
 
 /* ================================================================== */
-/*  CAIRO DRAWING HELPERS                                              */
+/*  WIN98 CLASSIC 3D BEVEL HELPERS                                    */
 /* ================================================================== */
+
+/* Classic colours */
+#define W98_BG       0.753f, 0.753f, 0.753f   /* #C0C0C0 face */
+#define W98_LIGHT    1.000f, 1.000f, 1.000f   /* highlight */
+#define W98_HILIGHT  0.871f, 0.871f, 0.871f   /* #DEDEDE */
+#define W98_SHADOW   0.502f, 0.502f, 0.502f   /* #808080 */
+#define W98_DARK     0.000f, 0.000f, 0.000f   /* #000000 dark shadow */
+#define W98_TEXT     0.000f, 0.000f, 0.000f
+#define W98_DISABLED 0.502f, 0.502f, 0.502f
+#define W98_TITLE_A  0.000f, 0.000f, 0.502f   /* active title blue */
+#define W98_TITLE_T  1.000f, 1.000f, 1.000f   /* title text white */
+#define W98_FOCUS    0.000f, 0.000f, 0.502f   /* URL focus border */
+#define W98_SEL      0.000f, 0.000f, 0.502f   /* selection blue */
 
 static void cr_set_rgb(cairo_t *cr, float r, float g, float b) {
     cairo_set_source_rgb(cr, r, g, b);
@@ -400,46 +413,122 @@ static void cr_set_rgba(cairo_t *cr, float r, float g, float b, float a) {
     cairo_set_source_rgba(cr, r, g, b, a);
 }
 
-/* Rounded rectangle path */
+/* cr_round_rect kept for API compat but always draws a plain rect */
 static void cr_round_rect(cairo_t *cr, float x, float y, float w, float h, float r) {
-    if (r <= 0) { cairo_rectangle(cr, x, y, w, h); return; }
-    cairo_move_to(cr, x+r, y);
-    cairo_line_to(cr, x+w-r, y);
-    cairo_arc(cr, x+w-r, y+r, r, -G_PI/2, 0);
-    cairo_line_to(cr, x+w, y+h-r);
-    cairo_arc(cr, x+w-r, y+h-r, r, 0, G_PI/2);
-    cairo_line_to(cr, x+r, y+h);
-    cairo_arc(cr, x+r, y+h-r, r, G_PI/2, G_PI);
-    cairo_line_to(cr, x, y+r);
-    cairo_arc(cr, x+r, y+r, r, G_PI, 3*G_PI/2);
-    cairo_close_path(cr);
+    (void)r;
+    cairo_rectangle(cr, x, y, w, h);
 }
 
-/* Draw text centred in a box, return pixel width of text */
+/* Raised 3D border (like a Win98 button up) */
+static void bevel_raised(cairo_t *cr, float x, float y, float w, float h) {
+    /* outer light (top, left) */
+    cairo_set_line_width(cr, 1.0f);
+    cr_set_rgb(cr, W98_LIGHT);
+    cairo_move_to(cr, x, y+h); cairo_line_to(cr, x, y); cairo_line_to(cr, x+w, y);
+    cairo_stroke(cr);
+    /* inner highlight */
+    cr_set_rgb(cr, W98_HILIGHT);
+    cairo_move_to(cr, x+1, y+h-1); cairo_line_to(cr, x+1, y+1); cairo_line_to(cr, x+w-1, y+1);
+    cairo_stroke(cr);
+    /* outer dark (bottom, right) */
+    cr_set_rgb(cr, W98_DARK);
+    cairo_move_to(cr, x, y+h); cairo_line_to(cr, x+w, y+h); cairo_line_to(cr, x+w, y);
+    cairo_stroke(cr);
+    /* inner shadow */
+    cr_set_rgb(cr, W98_SHADOW);
+    cairo_move_to(cr, x+1, y+h-1); cairo_line_to(cr, x+w-1, y+h-1); cairo_line_to(cr, x+w-1, y+1);
+    cairo_stroke(cr);
+}
+
+/* Sunken 3D border (like a Win98 button pressed) */
+static void bevel_sunken(cairo_t *cr, float x, float y, float w, float h) {
+    cairo_set_line_width(cr, 1.0f);
+    cr_set_rgb(cr, W98_SHADOW);
+    cairo_move_to(cr, x, y+h); cairo_line_to(cr, x, y); cairo_line_to(cr, x+w, y);
+    cairo_stroke(cr);
+    cr_set_rgb(cr, W98_DARK);
+    cairo_move_to(cr, x+1, y+h-1); cairo_line_to(cr, x+1, y+1); cairo_line_to(cr, x+w-1, y+1);
+    cairo_stroke(cr);
+    cr_set_rgb(cr, W98_LIGHT);
+    cairo_move_to(cr, x, y+h); cairo_line_to(cr, x+w, y+h); cairo_line_to(cr, x+w, y);
+    cairo_stroke(cr);
+    cr_set_rgb(cr, W98_HILIGHT);
+    cairo_move_to(cr, x+1, y+h-1); cairo_line_to(cr, x+w-1, y+h-1); cairo_line_to(cr, x+w-1, y+1);
+    cairo_stroke(cr);
+}
+
+/* Inset border (like a sunken field/edit box) */
+static void bevel_inset(cairo_t *cr, float x, float y, float w, float h) {
+    cairo_set_line_width(cr, 1.0f);
+    cr_set_rgb(cr, W98_SHADOW);
+    cairo_move_to(cr, x, y+h); cairo_line_to(cr, x, y); cairo_line_to(cr, x+w, y);
+    cairo_stroke(cr);
+    cr_set_rgb(cr, W98_DARK);
+    cairo_move_to(cr, x+1, y+h-1); cairo_line_to(cr, x+1, y+1); cairo_line_to(cr, x+w-1, y+1);
+    cairo_stroke(cr);
+    cr_set_rgb(cr, W98_LIGHT);
+    cairo_move_to(cr, x, y+h); cairo_line_to(cr, x+w, y+h); cairo_line_to(cr, x+w, y-1);
+    cairo_stroke(cr);
+}
+
+/* Draw a classic Win98 push button */
+static void draw_w98_button(cairo_t *cr, float x, float y, float w, float h,
+                             int pressed, int hovered, int enabled) {
+    /* Face */
+    cr_set_rgb(cr, W98_BG);
+    cairo_rectangle(cr, x, y, w, h);
+    cairo_fill(cr);
+    /* Bevel */
+    if (pressed) bevel_sunken(cr, x, y, w, h);
+    else         bevel_raised(cr, x, y, w, h);
+}
+
+/* Draw a classic 3-pixel title bar stripe pattern */
+static void draw_title_gradient(cairo_t *cr, float x, float y, float w, float h,
+                                  int active) {
+    if (active) {
+        /* Classic Win98 blue gradient (2-colour approximation) */
+        for (int i = 0; i < (int)h; i++) {
+            float t = (float)i / h;
+            float r = 0.0f + t * 0.12f;
+            float g = 0.0f + t * 0.08f;
+            float b = 0.502f + t * 0.20f;
+            cairo_set_source_rgb(cr, r, g, b);
+            cairo_rectangle(cr, x, y+i, w, 1);
+            cairo_fill(cr);
+        }
+    } else {
+        /* Inactive: grey gradient */
+        for (int i = 0; i < (int)h; i++) {
+            float t = (float)i / h;
+            float v = 0.502f + t * 0.15f;
+            cairo_set_source_rgb(cr, v, v, v);
+            cairo_rectangle(cr, x, y+i, w, 1);
+            cairo_fill(cr);
+        }
+    }
+}
+
+/* Text rendering helpers (unchanged) */
 static float cr_text_in_box(cairo_t *cr, float x, float y, float w, float h,
                               const char *text, float font_size,
                               const char *font, int bold,
                               float tr, float tg, float tb) {
     if (!text || !text[0]) return 0;
     PangoLayout *pl = pango_cairo_create_layout(cr);
-    char desc_str[128];
-    snprintf(desc_str, sizeof(desc_str), "%s %s %.0fpx", font, bold?"Bold":"", font_size);
-    PangoFontDescription *fd = pango_font_description_from_string(desc_str);
-    pango_layout_set_font_description(pl, fd);
-    pango_font_description_free(fd);
+    char ds[128];
+    snprintf(ds, sizeof(ds), "%s %s %.0fpx", font, bold?"Bold":"", font_size);
+    PangoFontDescription *fd = pango_font_description_from_string(ds);
+    pango_layout_set_font_description(pl, fd); pango_font_description_free(fd);
     pango_layout_set_text(pl, text, -1);
-    if (w > 0) { pango_layout_set_width(pl, (int)(w * PANGO_SCALE)); pango_layout_set_ellipsize(pl, PANGO_ELLIPSIZE_END); }
+    if (w > 0) { pango_layout_set_width(pl,(int)(w*PANGO_SCALE)); pango_layout_set_ellipsize(pl,PANGO_ELLIPSIZE_END); }
     int pw, ph; pango_layout_get_pixel_size(pl, &pw, &ph);
-    float tx = x + (w > 0 ? (w - pw) / 2.0f : 0);
-    float ty = y + (h - ph) / 2.0f;
-    cr_set_rgb(cr, tr, tg, tb);
-    cairo_move_to(cr, tx, ty);
+    cairo_set_source_rgb(cr, tr, tg, tb);
+    cairo_move_to(cr, x+(w>0?(w-pw)/2.0f:0), y+(h-ph)/2.0f);
     pango_cairo_show_layout(cr, pl);
     g_object_unref(pl);
-    return pw;
+    return (float)pw;
 }
-
-/* Left-aligned text, returns width */
 static float cr_text_left(cairo_t *cr, float x, float y, float h,
                             const char *text, float font_size, const char *font,
                             float tr, float tg, float tb) {
@@ -450,8 +539,8 @@ static float cr_text_left(cairo_t *cr, float x, float y, float h,
     pango_layout_set_font_description(pl, fd); pango_font_description_free(fd);
     pango_layout_set_text(pl, text, -1);
     int pw, ph; pango_layout_get_pixel_size(pl, &pw, &ph);
-    cr_set_rgb(cr, tr, tg, tb);
-    cairo_move_to(cr, x, y + (h - ph) / 2.0f);
+    cairo_set_source_rgb(cr, tr, tg, tb);
+    cairo_move_to(cr, x, y+(h-ph)/2.0f);
     pango_cairo_show_layout(cr, pl);
     g_object_unref(pl);
     return (float)pw;
@@ -464,145 +553,150 @@ static void hit_clear(NbBrowser *b) { b->hit_count = 0; }
 static void hit_add(NbBrowser *b, NbZone zone, int tab_idx,
                     float x, float y, float w, float h) {
     if (b->hit_count >= NB_MAX_HIT_RECTS) return;
-    NbHitRect *r    = &b->hit[b->hit_count++];
-    r->zone         = zone;
-    r->tab_index    = tab_idx;
+    NbHitRect *r = &b->hit[b->hit_count++];
+    r->zone = zone; r->tab_index = tab_idx;
     r->x = x; r->y = y; r->w = w; r->h = h;
 }
+/* Iterate forward — last registered wins (so register background first) */
 static NbHitRect hit_find(NbBrowser *b, float x, float y) {
-    /* iterate in reverse so topmost widget wins */
-    for (int i = b->hit_count - 1; i >= 0; i--) {
+    NbHitRect best = {ZONE_NONE, -1, 0,0,0,0};
+    for (int i = 0; i < b->hit_count; i++) {
         NbHitRect *r = &b->hit[i];
         if (x >= r->x && x < r->x+r->w && y >= r->y && y < r->y+r->h)
-            return *r;
+            best = *r;   /* later registrations win */
     }
-    NbHitRect none = {ZONE_NONE, -1, 0,0,0,0};
-    return none;
+    return best;
 }
 
 /* ================================================================== */
-/*  ICON / SYMBOL DRAWING  (pure Cairo, no image files needed)        */
+/*  WIN98-STYLE ICON DRAWING                                          */
 /* ================================================================== */
-static void draw_icon_arrow_left(cairo_t *cr, float cx, float cy, float sz, float r, float g, float b, float a) {
-    cr_set_rgba(cr, r,g,b,a);
-    cairo_set_line_width(cr, sz*0.15f);
-    cairo_move_to(cr, cx+sz*0.4f, cy-sz*0.35f);
-    cairo_line_to(cr, cx-sz*0.2f, cy);
-    cairo_line_to(cr, cx+sz*0.4f, cy+sz*0.35f);
+/* All icons drawn as classic Win98 pixel-art style */
+
+static void draw_icon_arrow_left(cairo_t *cr, float cx, float cy, float sz,
+                                   float r, float g, float b2, float a) {
+    cr_set_rgba(cr, r, g, b2, a);
+    cairo_set_line_width(cr, 1.5f);
+    float h = sz * 0.38f;
+    cairo_move_to(cr, cx+h, cy-h); cairo_line_to(cr, cx-h*0.4f, cy); cairo_line_to(cr, cx+h, cy+h);
     cairo_stroke(cr);
 }
-static void draw_icon_arrow_right(cairo_t *cr, float cx, float cy, float sz, float r, float g, float b, float a) {
-    cr_set_rgba(cr, r,g,b,a);
-    cairo_set_line_width(cr, sz*0.15f);
-    cairo_move_to(cr, cx-sz*0.4f, cy-sz*0.35f);
-    cairo_line_to(cr, cx+sz*0.2f, cy);
-    cairo_line_to(cr, cx-sz*0.4f, cy+sz*0.35f);
+static void draw_icon_arrow_right(cairo_t *cr, float cx, float cy, float sz,
+                                    float r, float g, float b2, float a) {
+    cr_set_rgba(cr, r, g, b2, a);
+    cairo_set_line_width(cr, 1.5f);
+    float h = sz * 0.38f;
+    cairo_move_to(cr, cx-h, cy-h); cairo_line_to(cr, cx+h*0.4f, cy); cairo_line_to(cr, cx-h, cy+h);
     cairo_stroke(cr);
 }
-static void draw_icon_reload(cairo_t *cr, float cx, float cy, float sz, float r, float g, float b, float a) {
-    cr_set_rgba(cr, r,g,b,a);
-    cairo_set_line_width(cr, sz*0.14f);
-    cairo_arc(cr, cx, cy, sz*0.38f, -2.2f, 1.2f);
-    cairo_stroke(cr);
-    /* arrowhead */
-    float ax = cx + sz*0.38f*cosf(1.2f), ay = cy + sz*0.38f*sinf(1.2f);
-    cairo_move_to(cr, ax-sz*0.18f, ay-sz*0.05f);
-    cairo_line_to(cr, ax,           ay);
-    cairo_line_to(cr, ax+sz*0.05f, ay-sz*0.2f);
+static void draw_icon_reload(cairo_t *cr, float cx, float cy, float sz,
+                               float r, float g, float b2, float a) {
+    cr_set_rgba(cr, r, g, b2, a);
+    cairo_set_line_width(cr, 1.5f);
+    cairo_arc(cr, cx, cy, sz*0.35f, -2.0f, 1.1f); cairo_stroke(cr);
+    float ax = cx+sz*0.35f*cosf(1.1f), ay = cy+sz*0.35f*sinf(1.1f);
+    cairo_move_to(cr, ax-sz*0.15f, ay-sz*0.05f);
+    cairo_line_to(cr, ax, ay); cairo_line_to(cr, ax+sz*0.05f, ay-sz*0.18f);
     cairo_stroke(cr);
 }
-static void draw_icon_stop(cairo_t *cr, float cx, float cy, float sz, float r, float g, float b, float a) {
-    cr_set_rgba(cr, r,g,b,a);
-    cairo_set_line_width(cr, sz*0.15f);
-    float h = sz*0.35f;
+static void draw_icon_stop(cairo_t *cr, float cx, float cy, float sz,
+                             float r, float g, float b2, float a) {
+    cr_set_rgba(cr, r, g, b2, a);
+    cairo_set_line_width(cr, 2.0f);
+    float h = sz*0.32f;
     cairo_move_to(cr, cx-h, cy-h); cairo_line_to(cr, cx+h, cy+h); cairo_stroke(cr);
     cairo_move_to(cr, cx+h, cy-h); cairo_line_to(cr, cx-h, cy+h); cairo_stroke(cr);
 }
-static void draw_icon_home(cairo_t *cr, float cx, float cy, float sz, float r, float g, float b, float a) {
-    cr_set_rgba(cr, r,g,b,a);
-    cairo_set_line_width(cr, sz*0.13f);
-    float h = sz*0.38f;
-    cairo_move_to(cr, cx-h, cy+h*0.1f);
-    cairo_line_to(cr, cx, cy-h);
-    cairo_line_to(cr, cx+h, cy+h*0.1f);
-    cairo_stroke(cr);
-    cairo_rectangle(cr, cx-h*0.55f, cy+h*0.1f, h*1.1f, h*0.9f);
-    cairo_stroke(cr);
+static void draw_icon_home(cairo_t *cr, float cx, float cy, float sz,
+                            float r, float g, float b2, float a) {
+    cr_set_rgba(cr, r, g, b2, a);
+    cairo_set_line_width(cr, 1.5f);
+    float h = sz*0.36f;
+    cairo_move_to(cr, cx-h, cy+h*0.15f); cairo_line_to(cr, cx, cy-h);
+    cairo_line_to(cr, cx+h, cy+h*0.15f); cairo_stroke(cr);
+    cairo_rectangle(cr, cx-h*0.5f, cy+h*0.15f, h, h*0.85f); cairo_stroke(cr);
 }
-static void draw_icon_plus(cairo_t *cr, float cx, float cy, float sz, float r, float g, float b, float a) {
-    cr_set_rgba(cr, r,g,b,a);
-    cairo_set_line_width(cr, sz*0.15f);
-    float h = sz*0.35f;
+static void draw_icon_plus(cairo_t *cr, float cx, float cy, float sz,
+                            float r, float g, float b2, float a) {
+    cr_set_rgba(cr, r, g, b2, a);
+    cairo_set_line_width(cr, 1.5f);
+    float h = sz*0.32f;
     cairo_move_to(cr, cx, cy-h); cairo_line_to(cr, cx, cy+h); cairo_stroke(cr);
     cairo_move_to(cr, cx-h, cy); cairo_line_to(cr, cx+h, cy); cairo_stroke(cr);
 }
-static void draw_icon_settings(cairo_t *cr, float cx, float cy, float sz, float r, float g, float b, float a) {
-    cr_set_rgba(cr, r,g,b,a);
-    cairo_set_line_width(cr, sz*0.12f);
-    cairo_arc(cr, cx, cy, sz*0.22f, 0, 2*G_PI); cairo_stroke(cr);
-    for (int i=0;i<8;i++) {
-        float angle = i * G_PI/4;
-        float x1 = cx + sz*0.28f*cosf(angle), y1 = cy + sz*0.28f*sinf(angle);
-        float x2 = cx + sz*0.42f*cosf(angle), y2 = cy + sz*0.42f*sinf(angle);
-        cairo_move_to(cr,x1,y1); cairo_line_to(cr,x2,y2); cairo_stroke(cr);
+static void draw_icon_settings(cairo_t *cr, float cx, float cy, float sz,
+                                float r, float g, float b2, float a) {
+    cr_set_rgba(cr, r, g, b2, a);
+    cairo_set_line_width(cr, 1.2f);
+    cairo_arc(cr, cx, cy, sz*0.20f, 0, 2*G_PI); cairo_stroke(cr);
+    for (int i = 0; i < 8; i++) {
+        float ang = i * G_PI / 4.0f;
+        cairo_move_to(cr, cx+sz*0.26f*cosf(ang), cy+sz*0.26f*sinf(ang));
+        cairo_line_to(cr, cx+sz*0.40f*cosf(ang), cy+sz*0.40f*sinf(ang));
+        cairo_stroke(cr);
     }
 }
-static void draw_icon_close(cairo_t *cr, float cx, float cy, float sz, float r, float g, float b, float a) {
-    cr_set_rgba(cr, r,g,b,a);
-    cairo_set_line_width(cr, sz*0.14f);
-    float h = sz*0.35f;
+static void draw_icon_close(cairo_t *cr, float cx, float cy, float sz,
+                             float r, float g, float b2, float a) {
+    cr_set_rgba(cr, r, g, b2, a);
+    cairo_set_line_width(cr, 1.8f);
+    float h = sz*0.30f;
     cairo_move_to(cr, cx-h, cy-h); cairo_line_to(cr, cx+h, cy+h); cairo_stroke(cr);
     cairo_move_to(cr, cx+h, cy-h); cairo_line_to(cr, cx-h, cy+h); cairo_stroke(cr);
 }
-static void draw_icon_minimize(cairo_t *cr, float cx, float cy, float sz, float r, float g, float b, float a) {
-    cr_set_rgba(cr, r,g,b,a);
-    cairo_set_line_width(cr, sz*0.14f);
-    float h = sz*0.3f;
-    cairo_move_to(cr, cx-h, cy); cairo_line_to(cr, cx+h, cy); cairo_stroke(cr);
+static void draw_icon_minimize(cairo_t *cr, float cx, float cy, float sz,
+                                float r, float g, float b2, float a) {
+    cr_set_rgba(cr, r, g, b2, a);
+    cairo_set_line_width(cr, 2.0f);
+    float h = sz*0.28f;
+    cairo_move_to(cr, cx-h, cy+h); cairo_line_to(cr, cx+h, cy+h); cairo_stroke(cr);
 }
-static void draw_icon_maximize(cairo_t *cr, float cx, float cy, float sz, float r, float g, float b, float a) {
-    cr_set_rgba(cr, r,g,b,a);
-    cairo_set_line_width(cr, sz*0.13f);
-    float h = sz*0.3f;
+static void draw_icon_maximize(cairo_t *cr, float cx, float cy, float sz,
+                                float r, float g, float b2, float a) {
+    cr_set_rgba(cr, r, g, b2, a);
+    cairo_set_line_width(cr, 1.5f);
+    float h = sz*0.28f;
     cairo_rectangle(cr, cx-h, cy-h, h*2, h*2); cairo_stroke(cr);
+    /* double top bar (Win98 style) */
+    cairo_move_to(cr, cx-h, cy-h+2); cairo_line_to(cr, cx+h, cy-h+2); cairo_stroke(cr);
 }
-static void draw_icon_restore(cairo_t *cr, float cx, float cy, float sz, float r, float g, float b, float a) {
-    cr_set_rgba(cr, r,g,b,a);
-    cairo_set_line_width(cr, sz*0.12f);
-    float h = sz*0.27f;
-    cairo_rectangle(cr, cx-h+sz*0.07f, cy-h, h*2, h*2); cairo_stroke(cr);
-    cairo_rectangle(cr, cx-h, cy-h+sz*0.07f, h*2, h*2); cairo_stroke(cr);
+static void draw_icon_restore(cairo_t *cr, float cx, float cy, float sz,
+                               float r, float g, float b2, float a) {
+    cr_set_rgba(cr, r, g, b2, a);
+    cairo_set_line_width(cr, 1.5f);
+    float h = sz*0.22f, off = sz*0.10f;
+    /* back rect */
+    cairo_rectangle(cr, cx-h+off, cy-h-off, h*2, h*2); cairo_stroke(cr);
+    /* front rect */
+    cr_set_rgba(cr, 0.753f, 0.753f, 0.753f, 1.0f); /* fill to hide overlap */
+    cairo_rectangle(cr, cx-h, cy-h+off, h*2, h*2); cairo_fill(cr);
+    cr_set_rgba(cr, r, g, b2, a);
+    cairo_rectangle(cr, cx-h, cy-h+off, h*2, h*2); cairo_stroke(cr);
+    cairo_move_to(cr, cx-h, cy-h+off+2); cairo_line_to(cr, cx+h, cy-h+off+2); cairo_stroke(cr);
 }
-static void draw_icon_bookmark(cairo_t *cr, float cx, float cy, float sz, float r, float g, float b, float a) {
-    cr_set_rgba(cr, r,g,b,a);
-    cairo_set_line_width(cr, sz*0.12f);
-    float hw = sz*0.28f, hh = sz*0.4f;
-    cairo_move_to(cr, cx-hw, cy-hh);
-    cairo_line_to(cr, cx+hw, cy-hh);
-    cairo_line_to(cr, cx+hw, cy+hh);
-    cairo_line_to(cr, cx, cy+hh*0.4f);
-    cairo_line_to(cr, cx-hw, cy+hh);
-    cairo_close_path(cr); cairo_stroke(cr);
+static void draw_icon_bookmark(cairo_t *cr, float cx, float cy, float sz,
+                                float r, float g, float b2, float a) {
+    cr_set_rgba(cr, r, g, b2, a);
+    cairo_set_line_width(cr, 1.5f);
+    float hw = sz*0.26f, hh = sz*0.38f;
+    cairo_move_to(cr, cx-hw, cy-hh); cairo_line_to(cr, cx+hw, cy-hh);
+    cairo_line_to(cr, cx+hw, cy+hh); cairo_line_to(cr, cx, cy+hh*0.3f);
+    cairo_line_to(cr, cx-hw, cy+hh); cairo_close_path(cr); cairo_stroke(cr);
 }
 
 /* ================================================================== */
-/*  TOOLBAR BUTTON HELPER                                              */
+/*  WIN98 TOOLBAR BUTTON                                               */
 /* ================================================================== */
 static void draw_toolbar_btn(cairo_t *cr, NbBrowser *b, NbZone zone,
                                float x, float y, float w, float h,
-                               int enabled, void (*icon_fn)(cairo_t*, float, float, float, float, float, float, float)) {
-    NbTheme *t = &b->theme;
-    float s = t->ui_scale;
-    int hovered = (b->hover_zone == zone);
-
-    if (hovered && enabled) {
-        cr_set_rgba(cr, 1,1,1, 0.10f);
-        cr_round_rect(cr, x, y, w, h, 4*s);
-        cairo_fill(cr);
-    }
-    float ic = enabled ? 1.0f : 0.35f;
-    float cx = x + w/2, cy = y + h/2, sz = fminf(w,h) * 0.45f;
-    icon_fn(cr, cx, cy, sz, t->chrome_text_r*ic, t->chrome_text_g*ic, t->chrome_text_b*ic, 1.0f);
+                               int enabled,
+                               void (*icon_fn)(cairo_t*,float,float,float,float,float,float,float)) {
+    int pressed = 0;
+    int hov     = (b->hover_zone == zone);
+    draw_w98_button(cr, x, y, w, h, pressed, hov, enabled);
+    float ic = enabled ? 0.0f : 0.502f;
+    float cx2 = x + w/2, cy2 = y + h/2, sz = fminf(w,h)*0.44f;
+    icon_fn(cr, cx2, cy2, sz, ic, ic, ic, 1.0f);
     hit_add(b, zone, -1, x, y, w, h);
 }
 
@@ -610,543 +704,520 @@ static void draw_toolbar_btn(cairo_t *cr, NbBrowser *b, NbZone zone,
 /*  GEOMETRY CALCULATION                                               */
 /* ================================================================== */
 static void calc_geometry(NbBrowser *b) {
-    NbTheme *t = &b->theme;
-    float s = t->ui_scale;
-    b->titlebar_h  = t->compact_toolbar ? 0 : 0;  /* merged into toolbar */
-    b->tabbar_h    = 34 * s;
-    b->toolbar_h   = t->compact_toolbar ? 36*s : 42*s;
-    b->statusbar_h = t->show_status_bar ? 22*s : 0;
-    /* titlebar is the row with window controls + tabs */
-    b->titlebar_h  = b->tabbar_h;
+    float s = b->theme.ui_scale;
+    b->titlebar_h  = 22 * s;   /* Win98 title bar */
+    b->tabbar_h    = 26 * s;   /* tab strip below title */
+    b->toolbar_h   = 34 * s;   /* address bar + nav buttons */
+    b->statusbar_h = b->theme.show_status_bar ? 20*s : 0;
 
     b->content_x = 0;
-    b->content_y = b->titlebar_h + b->toolbar_h;
+    b->content_y = b->titlebar_h + b->tabbar_h + b->toolbar_h;
     b->content_w = b->win_w;
     b->content_h = b->win_h - b->content_y - b->statusbar_h;
     if (b->content_h < 0) b->content_h = 0;
 }
 
 /* ================================================================== */
-/*  DRAW TITLEBAR (tabs + window controls merged)                     */
+/*  WIN98 TITLE BAR                                                    */
 /* ================================================================== */
 static void draw_titlebar(cairo_t *cr, NbBrowser *b) {
-    NbTheme *t = &b->theme;
-    float s = t->ui_scale;
-    float W = b->win_w, H = b->titlebar_h;
+    float s  = b->theme.ui_scale;
+    float W  = (float)b->win_w;
+    float H  = b->titlebar_h;
 
-    /* Background */
-    cr_set_rgb(cr, t->chrome_r * 0.85f, t->chrome_g * 0.85f, t->chrome_b * 0.85f);
-    cairo_rectangle(cr, 0, 0, W, H);
-    cairo_fill(cr);
+    /* IMPORTANT: register drag zone FIRST so specific buttons override it */
+    hit_add(b, ZONE_TITLEBAR, -1, 0, 0, W, H);
 
-    /* Window control buttons — top right */
-    float btn_sz = H * 0.70f;
-    float btn_y  = (H - btn_sz) / 2;
-    float margin = 6 * s;
+    /* Outer window border */
+    bevel_raised(cr, 0, 0, W, b->win_h);
 
-    float close_x  = W - margin - btn_sz;
-    float max_x    = close_x - btn_sz - margin * 0.5f;
-    float min_x    = max_x  - btn_sz - margin * 0.5f;
+    /* Title bar gradient */
+    draw_title_gradient(cr, 2, 2, W-4, H-2, 1);
 
-    /* Close button */
+    /* Window title */
+    const char *title = b->active_tab && b->active_tab->title[0]
+                        ? b->active_tab->title : "Nishant Browser";
+    PangoLayout *pl = pango_cairo_create_layout(cr);
+    char ds[64]; snprintf(ds, sizeof(ds), "Sans Bold %.0fpx", 11.0f*s);
+    PangoFontDescription *fd = pango_font_description_from_string(ds);
+    pango_layout_set_font_description(pl, fd); pango_font_description_free(fd);
+    pango_layout_set_text(pl, title, -1);
+    pango_layout_set_ellipsize(pl, PANGO_ELLIPSIZE_END);
+    int pw2, ph2; pango_layout_get_pixel_size(pl, &pw2, &ph2);
+    cairo_set_source_rgb(cr, W98_TITLE_T);
+    cairo_move_to(cr, 6*s, 2+(H-2-ph2)/2.0f);
+    pango_cairo_show_layout(cr, pl); g_object_unref(pl);
+
+    /* Window control buttons */
+    float btn_w = (float)(int)(H * 0.90f);
+    float btn_h = H - 4*s, btn_y = 2*s;
+    float margin = 3*s;
+    float x = W - 2 - margin - btn_w;
+
+    /* Close */
     int hc = (b->hover_zone == ZONE_CLOSE);
-    cr_set_rgba(cr, hc ? 0.9f : 0.55f, hc ? 0.2f : 0.55f, hc ? 0.2f : 0.55f, 1.0f);
-    cr_round_rect(cr, close_x, btn_y, btn_sz, btn_sz, btn_sz/2);
-    cairo_fill(cr);
-    draw_icon_close(cr, close_x+btn_sz/2, btn_y+btn_sz/2, btn_sz, 1,1,1, 1);
-    hit_add(b, ZONE_CLOSE, -1, close_x, btn_y, btn_sz, btn_sz);
+    draw_w98_button(cr, x, btn_y, btn_w, btn_h, 0, hc, 1);
+    draw_icon_close(cr, x+btn_w/2, btn_y+btn_h/2, btn_h*0.70f, 0,0,0,1);
+    hit_add(b, ZONE_CLOSE, -1, x, btn_y, btn_w, btn_h);
+    x -= btn_w + margin;
 
-    /* Maximize button */
+    /* Maximize/Restore */
     int hm = (b->hover_zone == ZONE_MAXIMIZE);
-    cr_set_rgba(cr, hm ? 0.3f : 0.25f, hm ? 0.7f : 0.55f, hm ? 0.3f : 0.25f, 1.0f);
-    cr_round_rect(cr, max_x, btn_y, btn_sz, btn_sz, btn_sz/2);
-    cairo_fill(cr);
-    if (b->maximized) draw_icon_restore(cr, max_x+btn_sz/2, btn_y+btn_sz/2, btn_sz, 1,1,1, 1);
-    else              draw_icon_maximize(cr, max_x+btn_sz/2, btn_y+btn_sz/2, btn_sz, 1,1,1, 1);
-    hit_add(b, ZONE_MAXIMIZE, -1, max_x, btn_y, btn_sz, btn_sz);
+    draw_w98_button(cr, x, btn_y, btn_w, btn_h, 0, hm, 1);
+    if (b->maximized) draw_icon_restore(cr, x+btn_w/2, btn_y+btn_h/2, btn_h*0.70f, 0,0,0,1);
+    else              draw_icon_maximize(cr, x+btn_w/2, btn_y+btn_h/2, btn_h*0.70f, 0,0,0,1);
+    hit_add(b, ZONE_MAXIMIZE, -1, x, btn_y, btn_w, btn_h);
+    x -= btn_w + margin;
 
-    /* Minimize button */
+    /* Minimize */
     int hn = (b->hover_zone == ZONE_MINIMIZE);
-    cr_set_rgba(cr, hn ? 0.3f : 0.25f, hn ? 0.55f : 0.45f, hn ? 0.7f : 0.55f, 1.0f);
-    cr_round_rect(cr, min_x, btn_y, btn_sz, btn_sz, btn_sz/2);
-    cairo_fill(cr);
-    draw_icon_minimize(cr, min_x+btn_sz/2, btn_y+btn_sz/2, btn_sz, 1,1,1, 1);
-    hit_add(b, ZONE_MINIMIZE, -1, min_x, btn_y, btn_sz, btn_sz);
+    draw_w98_button(cr, x, btn_y, btn_w, btn_h, 0, hn, 1);
+    draw_icon_minimize(cr, x+btn_w/2, btn_y+btn_h/2, btn_h*0.70f, 0,0,0,1);
+    hit_add(b, ZONE_MINIMIZE, -1, x, btn_y, btn_w, btn_h);
+}
 
-    /* TABS */
-    float tab_area_end = min_x - margin * 2;
-    float new_tab_btn_w = H * 0.80f;
-    float new_tab_x = 4 * s;
-    float tabs_x_start = new_tab_x + new_tab_btn_w + 4*s;
-    float tabs_available = tab_area_end - tabs_x_start - 4*s;
+/* ================================================================== */
+/*  WIN98 TAB STRIP                                                    */
+/* ================================================================== */
+static void draw_tabstrip(cairo_t *cr, NbBrowser *b) {
+    float s   = b->theme.ui_scale;
+    float y0  = b->titlebar_h;
+    float H   = b->tabbar_h;
+    float W   = (float)b->win_w;
+
+    cr_set_rgb(cr, W98_BG);
+    cairo_rectangle(cr, 2, y0, W-4, H);
+    cairo_fill(cr);
+
+    cr_set_rgb(cr, W98_SHADOW);
+    cairo_set_line_width(cr, 1);
+    cairo_move_to(cr, 2, y0+H-1); cairo_line_to(cr, W-2, y0+H-1);
+    cairo_stroke(cr);
 
     /* New tab button */
-    int hnt = (b->hover_zone == ZONE_BTN_NEW_TAB);
-    if (hnt) { cr_set_rgba(cr, 1,1,1,0.10f); cr_round_rect(cr, new_tab_x, btn_y, new_tab_btn_w, btn_sz, 4*s); cairo_fill(cr); }
-    draw_icon_plus(cr, new_tab_x+new_tab_btn_w/2, btn_y+btn_sz/2, btn_sz,
-                   t->chrome_text_r, t->chrome_text_g, t->chrome_text_b, 1.0f);
-    hit_add(b, ZONE_BTN_NEW_TAB, -1, new_tab_x, btn_y, new_tab_btn_w, btn_sz);
+    float ntw = 22*s, nth = H-4*s, nty = y0+2*s;
+    int hn2 = (b->hover_zone == ZONE_BTN_NEW_TAB);
+    draw_w98_button(cr, 3*s, nty, ntw, nth, 0, hn2, 1);
+    draw_icon_plus(cr, 3*s+ntw/2, nty+nth/2, nth*0.5f, 0,0,0,1);
+    hit_add(b, ZONE_BTN_NEW_TAB, -1, 3*s, nty, ntw, nth);
 
-    /* Draw tabs */
+    float tx = 3*s + ntw + 4*s;
     int n = b->tab_count; if (n < 1) n = 1;
-    float tab_w = fminf(200*s, tabs_available / n);
-    float tx = tabs_x_start;
+    float tabs_avail = W - tx - 6*s;
+    float tab_w = fminf(180*s, tabs_avail / (float)n);
+    if (tab_w < 60) tab_w = 60;
+
     int idx = 0;
     for (NbTab *tab = b->tabs; tab; tab = tab->next, idx++) {
-        int is_active = (tab == b->active_tab);
-        int is_hov    = (b->hover_zone == ZONE_TAB && b->hover_tab == idx);
-        float ty = 3*s;
-        float th = H - 3*s;
+        int active = (tab == b->active_tab);
+        int is_hov = (b->hover_zone == ZONE_TAB && b->hover_tab == idx);
+        float ty   = active ? y0+1*s : y0+3*s;
+        float th   = active ? H-1*s  : H-3*s;
 
-        /* Tab background */
-        if (is_active) {
-            cr_set_rgb(cr, t->chrome_r, t->chrome_g, t->chrome_b);
-            cr_round_rect(cr, tx, ty, tab_w, th, 6*s);
-            cairo_fill(cr);
-            /* accent underline */
-            cr_set_rgb(cr, t->accent_r, t->accent_g, t->accent_b);
-            cairo_rectangle(cr, tx+4, ty+th-2.5f, tab_w-8, 2.5f);
-            cairo_fill(cr);
-        } else if (is_hov) {
-            cr_set_rgba(cr, 1,1,1, 0.07f);
-            cr_round_rect(cr, tx, ty, tab_w, th, 6*s);
-            cairo_fill(cr);
+        cr_set_rgb(cr, W98_BG);
+        cairo_rectangle(cr, tx, ty, tab_w, th); cairo_fill(cr);
+        bevel_raised(cr, tx, ty, tab_w, th);
+
+        if (active) {
+            /* Erase bottom line to merge with content area */
+            cr_set_rgb(cr, W98_BG);
+            cairo_rectangle(cr, tx+1, ty+th-1, tab_w-2, 2); cairo_fill(cr);
         }
 
-        /* Loading spinner (dot animation) or tab title */
-        float title_x = tx + 8*s;
-        float title_w = tab_w - 32*s;
-        if (tab->loading) {
-            /* simple "..." loading indicator */
-            cr_text_in_box(cr, tx, ty, tab_w - 22*s, th, "...",
-                           t->ui_font_size*s, t->ui_font, 0,
-                           t->chrome_text_r*0.6f, t->chrome_text_g*0.6f, t->chrome_text_b*0.6f);
-        } else {
-            /* Clip title */
-            cairo_save(cr);
-            cairo_rectangle(cr, title_x, ty, title_w, th); cairo_clip(cr);
-            cr_text_left(cr, title_x, ty, th, tab->title, t->ui_font_size*s, t->ui_font,
-                          t->chrome_text_r, t->chrome_text_g, t->chrome_text_b);
-            cairo_restore(cr);
-        }
+        /* Favicon stub */
+        float fx = tx+5*s, fy = ty+(th-14*s)/2;
+        cr_set_rgb(cr, 0.92f,0.92f,1.0f);
+        cairo_rectangle(cr, fx, fy, 14*s, 14*s); cairo_fill(cr);
+        bevel_sunken(cr, fx, fy, 14*s, 14*s);
+
+        /* Title */
+        float title_x = tx + 24*s;
+        float close_bw = 16*s;
+        float title_max = tab_w - 24*s - close_bw - 6*s;
+        cairo_save(cr);
+        cairo_rectangle(cr, title_x, ty, title_max, th); cairo_clip(cr);
+        const char *ttitle = tab->loading ? "Loading..." : (tab->title[0] ? tab->title : "New Tab");
+        cr_text_left(cr, title_x, ty, th, ttitle, 10.5f*s, "Sans", 0.0f, 0.0f, 0.0f);
+        cairo_restore(cr);
 
         /* Tab close button */
-        float close_sz = 14*s;
-        float close_bx = tx + tab_w - close_sz - 5*s;
-        float close_by = ty + (th - close_sz) / 2;
-        if (is_active || is_hov) {
+        if (active || is_hov) {
+            float cbx = tx + tab_w - close_bw - 3*s;
+            float cby = ty + (th-14*s)/2;
             int hcl = (b->hover_zone == ZONE_TAB_CLOSE && b->hover_tab == idx);
-            cr_set_rgba(cr, 1,1,1, hcl ? 0.25f : 0.12f);
-            cr_round_rect(cr, close_bx, close_by, close_sz, close_sz, close_sz/2);
-            cairo_fill(cr);
-            draw_icon_close(cr, close_bx+close_sz/2, close_by+close_sz/2, close_sz,
-                            t->chrome_text_r, t->chrome_text_g, t->chrome_text_b, 0.8f);
-            hit_add(b, ZONE_TAB_CLOSE, idx, close_bx, close_by, close_sz, close_sz);
+            draw_w98_button(cr, cbx, cby, 14*s, 14*s, 0, hcl, 1);
+            draw_icon_close(cr, cbx+7*s, cby+7*s, 14*s*0.7f, 0,0,0,1);
+            hit_add(b, ZONE_TAB_CLOSE, idx, cbx, cby, 14*s, 14*s);
         }
 
         hit_add(b, ZONE_TAB, idx, tx, ty, tab_w, th);
         tab->tab_x = tx; tab->tab_w = tab_w;
-        tx += tab_w + 2*s;
+        tx += tab_w + 2;
     }
-
-    /* Titlebar drag area (everything not covered by buttons/tabs gets registered as draggable) */
-    hit_add(b, ZONE_TITLEBAR, -1, 0, 0, W, H);
 }
 
 /* ================================================================== */
-/*  DRAW TOOLBAR                                                       */
+/*  WIN98 TOOLBAR                                                      */
 /* ================================================================== */
 static void draw_toolbar(cairo_t *cr, NbBrowser *b) {
-    NbTheme *t = &b->theme;
-    float s = t->ui_scale;
-    float y0 = b->titlebar_h;
-    float W  = b->win_w;
-    float H  = b->toolbar_h;
+    float s   = b->theme.ui_scale;
+    float y0  = b->titlebar_h + b->tabbar_h;
+    float W   = (float)b->win_w;
+    float H   = b->toolbar_h;
 
-    /* Background */
-    cr_set_rgb(cr, t->chrome_r, t->chrome_g, t->chrome_b);
-    cairo_rectangle(cr, 0, y0, W, H);
-    cairo_fill(cr);
+    cr_set_rgb(cr, W98_BG);
+    cairo_rectangle(cr, 2, y0, W-4, H); cairo_fill(cr);
 
-    /* Separator line at bottom */
-    cr_set_rgba(cr, 0,0,0, 0.25f);
+    cr_set_rgb(cr, W98_SHADOW);
     cairo_set_line_width(cr, 1);
-    cairo_move_to(cr, 0, y0+H-0.5f);
-    cairo_line_to(cr, W, y0+H-0.5f);
+    cairo_move_to(cr, 2, y0+H-1); cairo_line_to(cr, W-2, y0+H-1);
     cairo_stroke(cr);
 
-    float btn_sz  = H * 0.60f;
-    float btn_pad = (H - btn_sz) / 2;
+    float btn_h = (float)(int)(H * 0.74f);
+    float btn_y = y0 + (H - btn_h)/2;
+    float btn_w = btn_h + 8*s;
     float x = 6*s;
-    float by = y0 + btn_pad;
-    float bw = btn_sz * 1.35f;
 
     int can_back    = b->history_pos > 0;
     int can_forward = b->history_pos < b->history_len - 1;
-    int is_loading  = b->active_tab && b->active_tab->loading;
+    int loading     = b->active_tab && b->active_tab->loading;
 
-    /* Back */
-    draw_toolbar_btn(cr, b, ZONE_BTN_BACK,    x, by, bw, btn_sz, can_back, draw_icon_arrow_left); x += bw + 2*s;
-    /* Forward */
-    draw_toolbar_btn(cr, b, ZONE_BTN_FORWARD, x, by, bw, btn_sz, can_forward, draw_icon_arrow_right); x += bw + 2*s;
-    /* Reload/Stop */
-    if (is_loading)
-        draw_toolbar_btn(cr, b, ZONE_BTN_STOP,   x, by, bw, btn_sz, 1, draw_icon_stop);
+    draw_toolbar_btn(cr, b, ZONE_BTN_BACK,    x, btn_y, btn_w, btn_h, can_back,    draw_icon_arrow_left);  x += btn_w + 2*s;
+    draw_toolbar_btn(cr, b, ZONE_BTN_FORWARD, x, btn_y, btn_w, btn_h, can_forward, draw_icon_arrow_right); x += btn_w + 2*s;
+    if (loading)
+        draw_toolbar_btn(cr, b, ZONE_BTN_STOP,   x, btn_y, btn_w, btn_h, 1, draw_icon_stop);
     else
-        draw_toolbar_btn(cr, b, ZONE_BTN_RELOAD, x, by, bw, btn_sz, 1, draw_icon_reload);
-    x += bw + 2*s;
-    /* Home */
-    draw_toolbar_btn(cr, b, ZONE_BTN_HOME, x, by, bw, btn_sz, 1, draw_icon_home); x += bw + 8*s;
+        draw_toolbar_btn(cr, b, ZONE_BTN_RELOAD, x, btn_y, btn_w, btn_h, 1, draw_icon_reload);
+    x += btn_w + 2*s;
+    draw_toolbar_btn(cr, b, ZONE_BTN_HOME, x, btn_y, btn_w, btn_h, 1, draw_icon_home);
+    x += btn_w + 6*s;
 
-    /* URL BAR */
-    float right_btns_w = (bw + 2*s) * 4 + 8*s; /* bookmark+settings+zoom3 */
-    float url_w = W - x - right_btns_w - 8*s;
-    float url_h = H * 0.68f;
-    float url_y = y0 + (H - url_h) / 2;
+    /* "Address:" label */
+    float lbl_w = 0;
+    {
+        PangoLayout *pl = pango_cairo_create_layout(cr);
+        char dsc[64]; snprintf(dsc, sizeof(dsc), "Sans %.0fpx", 10.5f*s);
+        PangoFontDescription *fd = pango_font_description_from_string(dsc);
+        pango_layout_set_font_description(pl, fd); pango_font_description_free(fd);
+        pango_layout_set_text(pl, "Address:", -1);
+        int pw3, ph3; pango_layout_get_pixel_size(pl, &pw3, &ph3);
+        cairo_set_source_rgb(cr, 0.0f, 0.0f, 0.0f);
+        cairo_move_to(cr, x, y0+(H-ph3)/2.0f);
+        pango_cairo_show_layout(cr, pl); g_object_unref(pl);
+        lbl_w = (float)pw3 + 4*s;
+    }
+    x += lbl_w;
 
-    /* URL bar background */
-    int url_hov = (b->hover_zone == ZONE_URL_BAR);
-    float url_bg = url_hov || b->url_focused ? 0.30f : 0.22f;
-    cr_set_rgba(cr, url_bg, url_bg, url_bg*1.1f, 1.0f);
-    cr_round_rect(cr, x, url_y, url_w, url_h, url_h/2);
-    cairo_fill(cr);
+    /* Right-side buttons width */
+    float right_w = (btn_w + 2*s)*3 + 36*s + 6*s;
+    float url_w = W - x - right_w - 8*s;
+    float url_h = btn_h;
+    float url_y = btn_y;
 
-    /* URL bar focus ring */
+    /* URL bar — white sunken edit box */
+    cr_set_rgb(cr, 1,1,1);
+    cairo_rectangle(cr, x, url_y, url_w, url_h); cairo_fill(cr);
+    bevel_inset(cr, x, url_y, url_w, url_h);
+
     if (b->url_focused) {
-        cr_set_rgba(cr, t->accent_r, t->accent_g, t->accent_b, 0.7f);
-        cairo_set_line_width(cr, 1.5f);
-        cr_round_rect(cr, x, url_y, url_w, url_h, url_h/2);
+        cr_set_rgb(cr, W98_FOCUS);
+        cairo_set_line_width(cr, 1);
+        cairo_rectangle(cr, x-1, url_y-1, url_w+2, url_h+2);
         cairo_stroke(cr);
     }
 
-    /* URL text / placeholder */
     const char *url_text = b->url_edit[0] ? b->url_edit :
-                           (b->active_tab  ? b->active_tab->url : "");
+                           (b->active_tab ? b->active_tab->url : "");
     cairo_save(cr);
-    float pad = url_h * 0.25f;
-    cairo_rectangle(cr, x+pad, url_y, url_w-pad*2, url_h); cairo_clip(cr);
-    if (!b->url_focused && url_text[0] == '\0') {
-        cr_text_left(cr, x+pad, url_y, url_h, "Enter address...",
-                     t->ui_font_size*s, t->ui_font, 0.5f,0.5f,0.5f);
+    float pad = 4*s;
+    cairo_rectangle(cr, x+pad, url_y+1, url_w-pad*2, url_h-2); cairo_clip(cr);
+    if (!url_text || !url_text[0]) {
+        cr_text_left(cr, x+pad, url_y, url_h, "Type address and press Enter",
+                     10.0f*s, "Sans", 0.502f, 0.502f, 0.502f);
     } else {
-        cr_text_left(cr, x+pad, url_y, url_h, url_text,
-                     t->ui_font_size*s, t->ui_font,
-                     t->chrome_text_r, t->chrome_text_g, t->chrome_text_b);
-        /* Caret */
+        cr_text_left(cr, x+pad, url_y, url_h, url_text, 10.5f*s, "Sans", 0.0f, 0.0f, 0.0f);
         if (b->url_focused) {
-            /* measure text up to cursor */
             PangoLayout *pl = pango_cairo_create_layout(cr);
-            char ds[128]; snprintf(ds, sizeof(ds), "%s %.0fpx", t->ui_font, t->ui_font_size*s);
-            PangoFontDescription *fd = pango_font_description_from_string(ds);
+            char dsc[64]; snprintf(dsc, sizeof(dsc), "Sans %.0fpx", 10.5f*s);
+            PangoFontDescription *fd = pango_font_description_from_string(dsc);
             pango_layout_set_font_description(pl, fd); pango_font_description_free(fd);
-            char tmp[2048]; int cc = b->url_cursor; if(cc>(int)strlen(url_text)) cc=strlen(url_text);
-            memcpy(tmp, url_text, cc); tmp[cc]=0;
+            int cc = b->url_cursor;
+            int tlen = (int)strlen(url_text);
+            if (cc > tlen) cc = tlen;
+            char tmp[2048]; memcpy(tmp, url_text, cc); tmp[cc] = 0;
             pango_layout_set_text(pl, tmp, -1);
-            int pw,ph; pango_layout_get_pixel_size(pl,&pw,&ph);
+            int pw3, ph3; pango_layout_get_pixel_size(pl, &pw3, &ph3);
             g_object_unref(pl);
-            float cx2 = x+pad+pw;
-            cr_set_rgba(cr, t->chrome_text_r, t->chrome_text_g, t->chrome_text_b, 0.9f);
-            cairo_set_line_width(cr, 1.5f);
-            cairo_move_to(cr, cx2, url_y + (url_h-ph)/2 + 1);
-            cairo_line_to(cr, cx2, url_y + (url_h-ph)/2 + ph - 1);
+            float caret_x = x+pad+pw3;
+            cr_set_rgb(cr, 0.0f, 0.0f, 0.0f);
+            cairo_set_line_width(cr, 1.0f);
+            cairo_move_to(cr, caret_x, url_y+(url_h-ph3)/2+1);
+            cairo_line_to(cr, caret_x, url_y+(url_h-ph3)/2+ph3-1);
             cairo_stroke(cr);
         }
     }
     cairo_restore(cr);
     hit_add(b, ZONE_URL_BAR, -1, x, url_y, url_w, url_h);
-    x += url_w + 8*s;
+    x += url_w + 6*s;
 
-    /* Right-side buttons — zoom out (minus icon) */
+    /* Zoom out */
     {
-        int hzout = (b->hover_zone == ZONE_BTN_ZOOM_OUT);
-        if (hzout) {
-            cr_set_rgba(cr, 1,1,1,0.10f);
-            cr_round_rect(cr, x, by, bw, btn_sz, 4*s);
-            cairo_fill(cr);
-        }
-        float cx2=x+bw/2, cy2=by+btn_sz/2, mz=btn_sz*0.35f;
-        cr_set_rgba(cr, t->chrome_text_r, t->chrome_text_g, t->chrome_text_b, 1.0f);
-        cairo_set_line_width(cr, btn_sz*0.14f);
-        cairo_move_to(cr,cx2-mz,cy2); cairo_line_to(cr,cx2+mz,cy2); cairo_stroke(cr);
-        hit_add(b, ZONE_BTN_ZOOM_OUT, -1, x, by, bw, btn_sz);
+        int hz = (b->hover_zone == ZONE_BTN_ZOOM_OUT);
+        draw_w98_button(cr, x, btn_y, btn_w, btn_h, 0, hz, 1);
+        float mz = btn_h*0.28f;
+        cr_set_rgb(cr, 0.0f, 0.0f, 0.0f);
+        cairo_set_line_width(cr, 1.5f);
+        cairo_move_to(cr, x+btn_w/2-mz, btn_y+btn_h/2);
+        cairo_line_to(cr, x+btn_w/2+mz, btn_y+btn_h/2); cairo_stroke(cr);
+        hit_add(b, ZONE_BTN_ZOOM_OUT, -1, x, btn_y, btn_w, btn_h);
+        x += btn_w + 2*s;
     }
-    x += bw + 2*s;
-
-    /* Zoom label */
-    char zoom_str[16];
-    float zoom = b->active_tab ? b->active_tab->render_state.scale : 1.0f;
-    snprintf(zoom_str, sizeof(zoom_str), "%.0f%%", zoom*100);
-    float zlw = 38*s;
-    cr_text_in_box(cr, x, by, zlw, btn_sz, zoom_str,
-                   t->ui_font_size*0.9f*s, t->ui_font, 0,
-                   t->chrome_text_r, t->chrome_text_g, t->chrome_text_b);
-    hit_add(b, ZONE_BTN_ZOOM_RESET, -1, x, by, zlw, btn_sz);
-    x += zlw + 2*s;
-
-    draw_toolbar_btn(cr, b, ZONE_BTN_ZOOM_IN, x, by, bw, btn_sz, 1, draw_icon_plus); x += bw + 6*s;
-    draw_toolbar_btn(cr, b, ZONE_BTN_BOOKMARK, x, by, bw, btn_sz, 1, draw_icon_bookmark); x += bw + 2*s;
-    draw_toolbar_btn(cr, b, ZONE_BTN_SETTINGS, x, by, bw, btn_sz, 1, draw_icon_settings);
+    /* Zoom % */
+    {
+        float zoom = b->active_tab ? b->active_tab->render_state.scale : 1.0f;
+        char zs[10]; snprintf(zs, sizeof(zs), "%.0f%%", zoom*100);
+        float zw = 34*s;
+        cr_set_rgb(cr, 1,1,1);
+        cairo_rectangle(cr, x, btn_y, zw, btn_h); cairo_fill(cr);
+        bevel_inset(cr, x, btn_y, zw, btn_h);
+        cr_text_in_box(cr, x, btn_y, zw, btn_h, zs, 10.0f*s, "Sans", 0, 0.0f, 0.0f, 0.0f);
+        hit_add(b, ZONE_BTN_ZOOM_RESET, -1, x, btn_y, zw, btn_h);
+        x += zw + 2*s;
+    }
+    draw_toolbar_btn(cr, b, ZONE_BTN_ZOOM_IN,  x, btn_y, btn_w, btn_h, 1, draw_icon_plus);     x += btn_w + 2*s;
+    draw_toolbar_btn(cr, b, ZONE_BTN_BOOKMARK, x, btn_y, btn_w, btn_h, 1, draw_icon_bookmark);  x += btn_w + 2*s;
+    draw_toolbar_btn(cr, b, ZONE_BTN_SETTINGS, x, btn_y, btn_w, btn_h, 1, draw_icon_settings);
 }
 
 /* ================================================================== */
-/*  SETTINGS PANEL                                                     */
+/*  WIN98 SETTINGS PANEL                                               */
 /* ================================================================== */
-/* A simple slider helper — returns new value if dragged */
 static void draw_slider(cairo_t *cr, NbBrowser *b, float x, float y, float w,
                          float val, float vmin, float vmax,
                          const char *label, float s,
                          float tr, float tg, float tb) {
+    (void)b;
+    char lbl[64]; snprintf(lbl, sizeof(lbl), "%s: %.2f", label, val);
+    cr_text_left(cr, x, y-2*s, 16*s, lbl, 11*s, "Sans", tr, tg, tb);
     /* Track */
-    cr_set_rgba(cr, tr*0.3f, tg*0.3f, tb*0.3f, 1.0f);
-    cr_round_rect(cr, x, y+8*s, w, 4*s, 2*s);
-    cairo_fill(cr);
+    cr_set_rgb(cr, 1,1,1);
+    cairo_rectangle(cr, x, y+8*s, w, 6*s); cairo_fill(cr);
+    bevel_inset(cr, x, y+8*s, w, 6*s);
     /* Fill */
     float fill_w = w * (val - vmin) / (vmax - vmin);
-    cr_set_rgba(cr, 0.2f, 0.5f, 1.0f, 1.0f);
-    cr_round_rect(cr, x, y+8*s, fill_w, 4*s, 2*s);
-    cairo_fill(cr);
+    cr_set_rgb(cr, W98_TITLE_A);
+    cairo_rectangle(cr, x, y+8*s, fill_w, 6*s); cairo_fill(cr);
     /* Knob */
-    float kx = x + fill_w;
-    cr_set_rgba(cr, 1,1,1, 1.0f);
-    cairo_arc(cr, kx, y+10*s, 7*s, 0, 2*G_PI);
-    cairo_fill(cr);
-    /* Label */
-    char lbl[64]; snprintf(lbl, sizeof(lbl), "%s: %.2f", label, val);
-    cr_text_left(cr, x, y - 2*s, 16*s, lbl, 11*s, "Sans", tr, tg, tb);
+    float kx = x + fill_w - 4*s;
+    cr_set_rgb(cr, W98_BG);
+    cairo_rectangle(cr, kx, y+5*s, 8*s, 12*s); cairo_fill(cr);
+    bevel_raised(cr, kx, y+5*s, 8*s, 12*s);
 }
 
 static void draw_color_swatch(cairo_t *cr, float x, float y, float w, float h,
                                float r, float g, float b2, float br, float bg, float bb) {
-    cr_set_rgba(cr, r, g, b2, 1.0f);
-    cr_round_rect(cr, x, y, w, h, 4);
-    cairo_fill(cr);
-    cr_set_rgba(cr, br, bg, bb, 0.5f);
-    cairo_set_line_width(cr, 1);
-    cr_round_rect(cr, x, y, w, h, 4);
-    cairo_stroke(cr);
+    (void)br; (void)bg; (void)bb;
+    cr_set_rgb(cr, r, g, b2);
+    cairo_rectangle(cr, x, y, w, h); cairo_fill(cr);
+    bevel_raised(cr, x, y, w, h);
 }
 
 static void draw_settings_panel(cairo_t *cr, NbBrowser *b) {
-    NbTheme *t = &b->theme;
-    float s = t->ui_scale;
-    float W = b->win_w, H = b->win_h;
+    float s  = b->theme.ui_scale;
+    float W  = b->win_w, H = b->win_h;
 
     /* Dim overlay */
-    cr_set_rgba(cr, 0,0,0, 0.55f);
-    cairo_rectangle(cr, 0, 0, W, H);
-    cairo_fill(cr);
+    cr_set_rgba(cr, 0,0,0, 0.35f);
+    cairo_rectangle(cr, 0, 0, W, H); cairo_fill(cr);
 
-    /* Panel */
-    float pw = fminf(520*s, W - 40*s);
-    float ph = fminf(640*s, H - 40*s);
-    float px = (W - pw) / 2;
-    float py = (H - ph) / 2;
+    float pw = fminf(520*s, W-40*s);
+    float ph = fminf(620*s, H-40*s);
+    float px = (W-pw)/2, py = (H-ph)/2;
 
-    cr_set_rgb(cr, t->chrome_r + 0.05f, t->chrome_g + 0.05f, t->chrome_b + 0.08f);
-    cr_round_rect(cr, px, py, pw, ph, 12*s);
-    cairo_fill(cr);
+    /* Panel background */
+    cr_set_rgb(cr, W98_BG);
+    cairo_rectangle(cr, px, py, pw, ph); cairo_fill(cr);
+    bevel_raised(cr, px, py, pw, ph);
 
-    /* Panel border */
-    cr_set_rgba(cr, 1,1,1, 0.10f);
-    cairo_set_line_width(cr, 1);
-    cr_round_rect(cr, px, py, pw, ph, 12*s);
-    cairo_stroke(cr);
-
-    /* Close button */
-    float cbx = px + pw - 28*s, cby = py + 8*s, cbsz = 20*s;
-    int hc = (b->hover_zone == ZONE_SETTINGS_CLOSE);
-    cr_set_rgba(cr, hc?0.9f:0.5f, hc?0.2f:0.5f, hc?0.2f:0.5f, 1.0f);
-    cr_round_rect(cr, cbx, cby, cbsz, cbsz, cbsz/2);
-    cairo_fill(cr);
+    /* Title bar */
+    draw_title_gradient(cr, px+2, py+2, pw-4, 20*s, 1);
+    cairo_set_source_rgb(cr, W98_TITLE_T);
     {
-        float h2 = cbsz*0.3f;
-        cr_set_rgba(cr, 1,1,1,1);
-        cairo_set_line_width(cr, 1.5f);
-        cairo_move_to(cr, cbx+cbsz/2-h2, cby+cbsz/2-h2);
-        cairo_line_to(cr, cbx+cbsz/2+h2, cby+cbsz/2+h2); cairo_stroke(cr);
-        cairo_move_to(cr, cbx+cbsz/2+h2, cby+cbsz/2-h2);
-        cairo_line_to(cr, cbx+cbsz/2-h2, cby+cbsz/2+h2); cairo_stroke(cr);
+        PangoLayout *pl = pango_cairo_create_layout(cr);
+        char ds[64]; snprintf(ds, sizeof(ds), "Sans Bold %.0fpx", 11.0f*s);
+        PangoFontDescription *fd = pango_font_description_from_string(ds);
+        pango_layout_set_font_description(pl, fd); pango_font_description_free(fd);
+        pango_layout_set_text(pl, "Nishant Browser - Options", -1);
+        int pw2, ph2; pango_layout_get_pixel_size(pl, &pw2, &ph2);
+        cairo_move_to(cr, px+6*s, py+2+(20*s-ph2)/2);
+        pango_cairo_show_layout(cr, pl); g_object_unref(pl);
     }
-    hit_add(b, ZONE_SETTINGS_CLOSE, -1, cbx, cby, cbsz, cbsz);
 
-    /* Title */
-    cr_text_in_box(cr, px, py+6*s, pw-30*s, 28*s, "Nishant Browser — Settings",
-                   15*s, "Sans", 1,
-                   t->chrome_text_r, t->chrome_text_g, t->chrome_text_b);
+    /* Close button in title */
+    float cbx = px+pw-2-18*s, cby = py+2, cbw = 16*s, cbh = 18*s;
+    int hc = (b->hover_zone == ZONE_SETTINGS_CLOSE);
+    draw_w98_button(cr, cbx, cby, cbw, cbh, 0, hc, 1);
+    draw_icon_close(cr, cbx+cbw/2, cby+cbh/2, cbh*0.65f, 0,0,0,1);
+    hit_add(b, ZONE_SETTINGS_CLOSE, -1, cbx, cby, cbw, cbh);
 
-    /* Sections */
-    float lx = px + 20*s, row = py + 44*s, lw = pw - 40*s;
-    float tr2 = t->chrome_text_r, tg2 = t->chrome_text_g, tb2 = t->chrome_text_b;
+    float lx = px+12*s, row = py+22*s+8*s, lw = pw-24*s;
 
-    /* --- Section: Appearance --- */
-    cr_set_rgba(cr, t->accent_r, t->accent_g, t->accent_b, 0.8f);
-    cairo_rectangle(cr, lx, row, lw, 1.5f); cairo_fill(cr); row += 6*s;
-    cr_text_left(cr, lx, row, 18*s, "Appearance", 13*s, "Sans Bold", tr2, tg2, tb2); row += 22*s;
-
-    draw_slider(cr, b, lx, row, lw*0.7f, t->ui_scale, 0.5f, 2.0f, "UI Scale", s, tr2, tg2, tb2);
-    row += 28*s;
-    draw_slider(cr, b, lx, row, lw*0.7f, t->ui_font_size, 8.0f, 20.0f, "Font Size", s, tr2, tg2, tb2);
-    row += 28*s;
-    draw_slider(cr, b, lx, row, lw*0.7f, (float)t->corner_radius, 0.0f, 20.0f, "Corner Radius", s, tr2, tg2, tb2);
-    row += 32*s;
+    /* Group box: Appearance */
+    cr_set_rgb(cr, 0.0f, 0.0f, 0.0f);
+    cairo_set_line_width(cr, 1);
+    cairo_rectangle(cr, lx, row+8*s, lw, 110*s); cairo_stroke(cr);
+    cr_set_rgb(cr, W98_BG);
+    cairo_rectangle(cr, lx+8*s, row+3*s, 80*s, 12*s); cairo_fill(cr);
+    cr_text_left(cr, lx+10*s, row+3*s, 12*s, "Appearance", 10.5f*s, "Sans", 0.0f, 0.0f, 0.0f);
+    draw_slider(cr, b, lx+8*s, row+20*s, lw*0.65f, b->theme.ui_scale, 0.5f, 2.0f, "UI Scale", s, 0.0f, 0.0f, 0.0f);
+    draw_slider(cr, b, lx+8*s, row+50*s, lw*0.65f, b->theme.ui_font_size, 8.0f, 20.0f, "Font Size", s, 0.0f, 0.0f, 0.0f);
+    draw_slider(cr, b, lx+8*s, row+80*s, lw*0.65f, (float)b->theme.corner_radius, 0.0f, 16.0f, "Corner Radius", s, 0.0f, 0.0f, 0.0f);
+    row += 120*s;
 
     /* Colour presets */
-    cr_text_left(cr, lx, row, 16*s, "Theme Presets:", 11*s, "Sans", tr2*0.8f, tg2*0.8f, tb2*0.8f);
-    row += 18*s;
+    cr_set_rgb(cr, 0.0f, 0.0f, 0.0f);
+    cairo_rectangle(cr, lx, row+8*s, lw, 50*s); cairo_stroke(cr);
+    cr_set_rgb(cr, W98_BG);
+    cairo_rectangle(cr, lx+8*s, row+3*s, 80*s, 12*s); cairo_fill(cr);
+    cr_text_left(cr, lx+10*s, row+3*s, 12*s, "Theme", 10.5f*s, "Sans", 0.0f, 0.0f, 0.0f);
     struct { const char *name; float r,g,b; } presets[] = {
-        {"Dark",      0.13f,0.13f,0.13f},
-        {"Blue",      0.10f,0.14f,0.22f},
-        {"Purple",    0.15f,0.10f,0.22f},
-        {"Carbon",    0.09f,0.09f,0.09f},
-        {"Solarized", 0.00f,0.17f,0.21f},
+        {"Classic",  0.753f,0.753f,0.753f},
+        {"Navy",     0.0f,  0.0f,  0.502f},
+        {"Teal",     0.0f,  0.302f,0.302f},
+        {"Maroon",   0.502f,0.0f,  0.0f  },
+        {"Olive",    0.502f,0.502f,0.0f  },
         {NULL,0,0,0}
     };
-    float sw_w = 70*s, sw_h = 24*s, sw_gap = 6*s, sw_x = lx;
+    float sw_x = lx+8*s, sw_y = row+16*s;
+    float sw_w = 60*s, sw_h = 22*s;
     for (int i = 0; presets[i].name; i++) {
-        draw_color_swatch(cr, sw_x, row, sw_w, sw_h,
-                          presets[i].r, presets[i].g, presets[i].b,
-                          tr2*0.4f, tg2*0.4f, tb2*0.4f);
-        cr_text_in_box(cr, sw_x, row, sw_w, sw_h, presets[i].name,
-                       9*s, "Sans", 0, tr2, tg2, tb2);
-        sw_x += sw_w + sw_gap;
+        draw_color_swatch(cr, sw_x, sw_y, sw_w, sw_h, presets[i].r, presets[i].g, presets[i].b, 0,0,0);
+        cr_text_in_box(cr, sw_x, sw_y, sw_w, sw_h, presets[i].name, 9.0f*s, "Sans", 0,
+                       1-presets[i].r, 1-presets[i].g, 1-presets[i].b);
+        sw_x += sw_w + 4*s;
     }
-    row += sw_h + 16*s;
+    row += 60*s;
 
-    /* --- Section: Toolbar --- */
-    cr_set_rgba(cr, t->accent_r, t->accent_g, t->accent_b, 0.8f);
-    cairo_rectangle(cr, lx, row, lw, 1.5f); cairo_fill(cr); row += 6*s;
-    cr_text_left(cr, lx, row, 18*s, "Toolbar", 13*s, "Sans Bold", tr2, tg2, tb2); row += 22*s;
+    /* Group box: Options */
+    cr_set_rgb(cr, 0.0f, 0.0f, 0.0f);
+    cairo_rectangle(cr, lx, row+8*s, lw, 75*s); cairo_stroke(cr);
+    cr_set_rgb(cr, W98_BG);
+    cairo_rectangle(cr, lx+8*s, row+3*s, 65*s, 12*s); cairo_fill(cr);
+    cr_text_left(cr, lx+10*s, row+3*s, 12*s, "Options", 10.5f*s, "Sans", 0.0f, 0.0f, 0.0f);
 
-    /* Checkboxes */
     struct { const char *label; int *val; } checks[] = {
-        {"Compact toolbar (thinner height)", &t->compact_toolbar},
-        {"Show status bar",                  &t->show_status_bar},
-        {"Show bookmarks bar",               &t->show_bookmarks_bar},
-        {NULL, NULL}
+        {"Compact toolbar",   &b->theme.compact_toolbar  },
+        {"Show status bar",   &b->theme.show_status_bar  },
+        {"Show bookmarks bar",&b->theme.show_bookmarks_bar},
+        {NULL,NULL}
     };
-    for (int i = 0; checks[i].label; i++) {
+    float chy = row + 20*s;
+    for (int i = 0; checks[i].label; i++, chy += 22*s) {
         int v = *checks[i].val;
-        /* Box */
-        cr_set_rgba(cr, v ? t->accent_r : 0.3f, v ? t->accent_g : 0.3f, v ? t->accent_b : 0.3f, 1.0f);
-        cr_round_rect(cr, lx, row+1*s, 14*s, 14*s, 3*s); cairo_fill(cr);
+        /* Classic checkbox */
+        cr_set_rgb(cr, 1,1,1);
+        cairo_rectangle(cr, lx+8*s, chy+1*s, 13*s, 13*s); cairo_fill(cr);
+        bevel_inset(cr, lx+8*s, chy+1*s, 13*s, 13*s);
         if (v) {
-            cr_set_rgba(cr, 1,1,1, 1.0f); cairo_set_line_width(cr, 1.5f);
-            cairo_move_to(cr, lx+3*s, row+8*s);
-            cairo_line_to(cr, lx+6*s, row+12*s);
-            cairo_line_to(cr, lx+12*s, row+3*s); cairo_stroke(cr);
+            cr_set_rgb(cr, 0.0f, 0.0f, 0.0f);
+            cairo_set_line_width(cr, 1.5f);
+            cairo_move_to(cr, lx+10*s, chy+8*s);
+            cairo_line_to(cr, lx+13*s, chy+12*s);
+            cairo_line_to(cr, lx+20*s, chy+4*s);
+            cairo_stroke(cr);
         }
-        cr_text_left(cr, lx+20*s, row, 18*s, checks[i].label, 11*s, "Sans", tr2*0.9f, tg2*0.9f, tb2*0.9f);
-        row += 20*s;
+        cr_text_left(cr, lx+26*s, chy, 14*s, checks[i].label, 10.5f*s, "Sans", 0.0f, 0.0f, 0.0f);
     }
-    row += 8*s;
+    row += 85*s;
 
-    /* --- Section: Content --- */
-    cr_set_rgba(cr, t->accent_r, t->accent_g, t->accent_b, 0.8f);
-    cairo_rectangle(cr, lx, row, lw, 1.5f); cairo_fill(cr); row += 6*s;
-    cr_text_left(cr, lx, row, 18*s, "Content", 13*s, "Sans Bold", tr2, tg2, tb2); row += 22*s;
-    draw_slider(cr, b, lx, row, lw*0.7f,
-                b->active_tab ? b->active_tab->render_state.scale : 1.0f,
-                0.25f, 3.0f, "Page Zoom", s, tr2, tg2, tb2);
-    row += 32*s;
-
-    /* --- Section: About --- */
-    cr_set_rgba(cr, t->chrome_text_r*0.4f, t->chrome_text_g*0.4f, t->chrome_text_b*0.4f, 0.6f);
-    cairo_rectangle(cr, lx, row, lw, 1.0f); cairo_fill(cr); row += 8*s;
-    cr_text_left(cr, lx, row, 14*s, "Nishant Browser v1.0 — Custom engine, zero Chrome, zero Firefox.",
-                 9*s, "Sans", tr2*0.5f, tg2*0.5f, tb2*0.5f);
+    /* OK button */
+    float okx = px + pw/2 - 35*s, oky = py+ph-30*s, okw = 70*s, okh = 22*s;
+    draw_w98_button(cr, okx, oky, okw, okh, 0, 0, 1);
+    cr_text_in_box(cr, okx, oky, okw, okh, "OK", 10.5f*s, "Sans", 0, 0.0f, 0.0f, 0.0f);
+    hit_add(b, ZONE_SETTINGS_CLOSE, -1, okx, oky, okw, okh);
 }
 
 /* ================================================================== */
-/*  STATUS BAR                                                         */
+/*  WIN98 STATUS BAR                                                   */
 /* ================================================================== */
 static void draw_status_bar(cairo_t *cr, NbBrowser *b) {
     if (!b->theme.show_status_bar) return;
-    NbTheme *t = &b->theme;
-    float s = t->ui_scale;
-    float y0 = b->win_h - b->statusbar_h;
+    float s  = b->theme.ui_scale;
+    float W  = (float)b->win_w;
+    float H  = b->statusbar_h;
+    float y0 = b->win_h - H;
 
-    cr_set_rgb(cr, t->chrome_r * 0.80f, t->chrome_g * 0.80f, t->chrome_b * 0.80f);
-    cairo_rectangle(cr, 0, y0, b->win_w, b->statusbar_h);
-    cairo_fill(cr);
+    cr_set_rgb(cr, W98_BG);
+    cairo_rectangle(cr, 2, y0, W-4, H); cairo_fill(cr);
+    bevel_inset(cr, 2, y0, W-4, H);
 
-    cr_set_rgba(cr, 0,0,0, 0.2f);
-    cairo_set_line_width(cr, 1);
-    cairo_move_to(cr, 0, y0+0.5f);
-    cairo_line_to(cr, b->win_w, y0+0.5f);
-    cairo_stroke(cr);
-
+    /* Status panels */
     const char *status = "Ready";
     if (b->active_tab) {
-        if (b->active_tab->loading)   status = "Loading...";
+        if (b->active_tab->loading)          status = b->active_tab->url;
         else if (b->active_tab->error_msg[0]) status = b->active_tab->error_msg;
-        else if (b->active_tab->url[0]) status = b->active_tab->url;
+        else if (b->active_tab->url[0])       status = b->active_tab->url;
     }
-    cr_text_left(cr, 8*s, y0, b->statusbar_h, status,
-                 9.5f*s, t->ui_font, t->chrome_text_r*0.7f, t->chrome_text_g*0.7f, t->chrome_text_b*0.7f);
 
-    /* Right side: zoom info */
+    /* Left panel */
+    float panel1_w = W - 4 - 60*s - 8*s;
+    cr_set_rgb(cr, 1,1,1);
+    cairo_rectangle(cr, 4, y0+2, panel1_w, H-4); cairo_fill(cr);
+    bevel_inset(cr, 4, y0+2, panel1_w, H-4);
+    cairo_save(cr);
+    cairo_rectangle(cr, 6, y0+2, panel1_w-4, H-4); cairo_clip(cr);
+    cr_text_left(cr, 6, y0+2, H-4, status, 9.5f*s, "Sans", 0.0f, 0.0f, 0.0f);
+    cairo_restore(cr);
+
+    /* Right panel — zoom */
+    float panel2_x = 4 + panel1_w + 4;
+    float panel2_w = 60*s;
+    cr_set_rgb(cr, 1,1,1);
+    cairo_rectangle(cr, panel2_x, y0+2, panel2_w, H-4); cairo_fill(cr);
+    bevel_inset(cr, panel2_x, y0+2, panel2_w, H-4);
     float zoom = b->active_tab ? b->active_tab->render_state.scale : 1.0f;
-    char zs[16]; snprintf(zs, sizeof(zs), "%.0f%%", zoom*100);
-    cr_text_in_box(cr, b->win_w - 50*s, y0, 48*s, b->statusbar_h, zs,
-                   9.5f*s, t->ui_font, 0,
-                   t->chrome_text_r*0.7f, t->chrome_text_g*0.7f, t->chrome_text_b*0.7f);
+    char zs[10]; snprintf(zs, sizeof(zs), "%.0f%%", zoom*100);
+    cr_text_in_box(cr, panel2_x, y0+2, panel2_w, H-4, zs, 9.5f*s, "Sans", 0, 0.0f, 0.0f, 0.0f);
 }
 
 /* ================================================================== */
-/*  CONTENT AREA — page viewport                                       */
+/*  CONTENT AREA                                                       */
 /* ================================================================== */
 static void draw_content(cairo_t *cr, NbBrowser *b) {
-    NbTheme *t = &b->theme;
     float cx = b->content_x, cy = b->content_y;
     float cw = b->content_w, ch = b->content_h;
     if (cw <= 0 || ch <= 0) return;
 
-    /* Clip to content area */
     cairo_save(cr);
     cairo_rectangle(cr, cx, cy, cw, ch);
     cairo_clip(cr);
     cairo_translate(cr, cx, cy);
 
     NbTab *tab = b->active_tab;
-
     if (!tab) {
-        cr_set_rgb(cr, t->page_bg_r, t->page_bg_g, t->page_bg_b);
-        cairo_paint(cr);
-        cairo_restore(cr);
-        return;
+        cr_set_rgb(cr, 1,1,1); cairo_paint(cr);
+        cairo_restore(cr); return;
     }
-
     if (tab->loading) {
-        cr_set_rgb(cr, t->page_bg_r, t->page_bg_g, t->page_bg_b);
-        cairo_paint(cr);
-        /* Centered loading message */
-        cr_text_in_box(cr, 0, 0, cw, ch, "Loading...", 16, "Sans", 0,
-                       t->chrome_text_r*0.5f, t->chrome_text_g*0.5f, t->chrome_text_b*0.5f);
-        cairo_restore(cr);
-        return;
+        cr_set_rgb(cr, 1,1,1); cairo_paint(cr);
+        cr_text_in_box(cr, 0, 0, cw, ch, "Loading...", 14, "Sans", 0, 0.4f,0.4f,0.4f);
+        cairo_restore(cr); return;
     }
-
     if (tab->error_msg[0]) {
         nb_render_error_page(cr, cw, ch, tab->error_msg);
-        cairo_restore(cr);
-        return;
+        cairo_restore(cr); return;
     }
-
     if (!tab->layout) {
-        cr_set_rgb(cr, 1,1,1);
-        cairo_paint(cr);
-        cairo_restore(cr);
-        return;
+        cr_set_rgb(cr, 1,1,1); cairo_paint(cr);
+        cairo_restore(cr); return;
     }
 
-    /* Reflow if width changed */
     if (fabsf(tab->layout->viewport_width - cw) > 1.0f)
         nb_layout_reflow(tab->layout, cw, ch);
 
     tab->render_state.scroll_x = b->scroll_x;
     tab->render_state.scroll_y = b->scroll_y;
     nb_render_paint(cr, tab->layout, &tab->render_state);
-
     hit_add(b, ZONE_CONTENT, -1, 0, 0, cw, ch);
 
     cairo_restore(cr);
@@ -1162,32 +1233,56 @@ static gboolean on_draw(GtkWidget *w, cairo_t *cr, gpointer data) {
     calc_geometry(b);
     hit_clear(b);
 
-    /* Window rounded corners clip */
-    int rad = b->maximized ? 0 : b->theme.corner_radius;
-    cr_round_rect(cr, 0, 0, b->win_w, b->win_h, rad);
-    cairo_clip(cr);
+    /* Fill whole window with classic grey */
+    cr_set_rgb(cr, W98_BG);
+    cairo_rectangle(cr, 0, 0, b->win_w, b->win_h);
+    cairo_fill(cr);
 
-    /* Content first (bottom layer) */
+    /* Draw layers bottom-up */
     draw_content(cr, b);
-
-    /* Chrome on top */
-    draw_titlebar(cr, b);
+    draw_titlebar(cr, b);  /* includes outer bevel */
+    draw_tabstrip(cr, b);
     draw_toolbar(cr, b);
     draw_status_bar(cr, b);
 
-    /* Settings overlay on top of everything */
     if (b->settings_open)
         draw_settings_panel(cr, b);
 
-    /* Thin window border for non-maximized */
-    if (!b->maximized) {
-        cr_set_rgba(cr, 1,1,1, 0.08f);
-        cairo_set_line_width(cr, 1);
-        cr_round_rect(cr, 0.5f, 0.5f, b->win_w-1, b->win_h-1, rad);
-        cairo_stroke(cr);
-    }
-
     return FALSE;
+}
+
+/* ================================================================== */
+/*  RESIZE EDGE DETECTION                                              */
+/* ================================================================== */
+#define RESIZE_EDGE 6
+
+static GdkWindowEdge get_resize_edge(NbBrowser *b, float mx, float my) {
+    float W = b->win_w, H = b->win_h;
+    float E = RESIZE_EDGE;
+    int top = my < E, bot = my > H-E, lft = mx < E, rgt = mx > W-E;
+    if (top && lft) return GDK_WINDOW_EDGE_NORTH_WEST;
+    if (top && rgt) return GDK_WINDOW_EDGE_NORTH_EAST;
+    if (bot && lft) return GDK_WINDOW_EDGE_SOUTH_WEST;
+    if (bot && rgt) return GDK_WINDOW_EDGE_SOUTH_EAST;
+    if (top)        return GDK_WINDOW_EDGE_NORTH;
+    if (bot)        return GDK_WINDOW_EDGE_SOUTH;
+    if (lft)        return GDK_WINDOW_EDGE_WEST;
+    if (rgt)        return GDK_WINDOW_EDGE_EAST;
+    return (GdkWindowEdge)-1;
+}
+
+static GdkCursorType cursor_for_edge(GdkWindowEdge edge) {
+    switch (edge) {
+    case GDK_WINDOW_EDGE_NORTH:      return GDK_TOP_SIDE;
+    case GDK_WINDOW_EDGE_SOUTH:      return GDK_BOTTOM_SIDE;
+    case GDK_WINDOW_EDGE_WEST:       return GDK_LEFT_SIDE;
+    case GDK_WINDOW_EDGE_EAST:       return GDK_RIGHT_SIDE;
+    case GDK_WINDOW_EDGE_NORTH_WEST: return GDK_TOP_LEFT_CORNER;
+    case GDK_WINDOW_EDGE_NORTH_EAST: return GDK_TOP_RIGHT_CORNER;
+    case GDK_WINDOW_EDGE_SOUTH_WEST: return GDK_BOTTOM_LEFT_CORNER;
+    case GDK_WINDOW_EDGE_SOUTH_EAST: return GDK_BOTTOM_RIGHT_CORNER;
+    default:                          return GDK_LEFT_PTR;
+    }
 }
 
 /* ================================================================== */
@@ -1197,45 +1292,36 @@ static gboolean on_motion(GtkWidget *w, GdkEventMotion *ev, gpointer data) {
     NbBrowser *b = (NbBrowser*)data;
     float mx = (float)ev->x, my = (float)ev->y;
 
-    /* Window drag */
-    if (b->dragging && !b->maximized) {
-        int rx, ry;
-        gdk_window_get_root_origin(gtk_widget_get_window(b->window), &rx, &ry);
-        int nx = rx + (int)(mx - b->drag_start_x);
-        int ny = ry + (int)(my - b->drag_start_y);
-        gtk_window_move(GTK_WINDOW(b->window), nx, ny);
-        return TRUE;
-    }
-
     /* Update hover zone */
     NbHitRect h = hit_find(b, mx, my);
     NbZone old_zone = b->hover_zone;
-    int old_tab = b->hover_tab;
+    int    old_tab  = b->hover_tab;
     b->hover_zone = h.zone;
     b->hover_tab  = h.tab_index;
 
-    /* Cursor shape */
-    GdkCursor *cur = NULL;
+    /* Cursor */
     GdkDisplay *disp = gdk_display_get_default();
-    switch (h.zone) {
-        case ZONE_URL_BAR:
-            cur = gdk_cursor_new_from_name(disp, "text"); break;
-        case ZONE_CONTENT:
-            cur = gdk_cursor_new_from_name(disp, "default"); break;
+    GdkCursorType ctype = GDK_LEFT_PTR;
+    if (!b->maximized) {
+        GdkWindowEdge edge = get_resize_edge(b, mx, my);
+        if ((int)edge >= 0) ctype = cursor_for_edge(edge);
+    }
+    if (ctype == GDK_LEFT_PTR) {
+        switch (h.zone) {
+        case ZONE_URL_BAR: ctype = GDK_XTERM; break;
         case ZONE_CLOSE: case ZONE_MAXIMIZE: case ZONE_MINIMIZE:
-        case ZONE_TAB:   case ZONE_TAB_CLOSE: case ZONE_BTN_BACK:
+        case ZONE_TAB: case ZONE_TAB_CLOSE: case ZONE_BTN_BACK:
         case ZONE_BTN_FORWARD: case ZONE_BTN_RELOAD: case ZONE_BTN_STOP:
         case ZONE_BTN_HOME: case ZONE_BTN_NEW_TAB: case ZONE_BTN_ZOOM_IN:
         case ZONE_BTN_ZOOM_OUT: case ZONE_BTN_BOOKMARK: case ZONE_BTN_SETTINGS:
-        case ZONE_SETTINGS_CLOSE:
-            cur = gdk_cursor_new_from_name(disp, "pointer"); break;
-        default:
-            cur = gdk_cursor_new_from_name(disp, "default"); break;
+        case ZONE_SETTINGS_CLOSE: case ZONE_BTN_ZOOM_RESET:
+            ctype = GDK_HAND2; break;
+        default: break;
+        }
     }
-    if (cur) {
-        gdk_window_set_cursor(gtk_widget_get_window(b->window), cur);
-        g_object_unref(cur);
-    }
+    GdkCursor *cur = gdk_cursor_new_for_display(disp, ctype);
+    gdk_window_set_cursor(gtk_widget_get_window(b->window), cur);
+    g_object_unref(cur);
 
     if (old_zone != b->hover_zone || old_tab != b->hover_tab)
         nb_browser_queue_draw(b);
@@ -1250,19 +1336,23 @@ static void navigate_active(NbBrowser *b, const char *url) {
     else                nb_browser_navigate(b, b->active_tab, url);
 }
 
-static void apply_theme_preset(NbBrowser *b, float r, float g, float bl) {
-    NbTheme *t = &b->theme;
-    t->chrome_r = r; t->chrome_g = g; t->chrome_b = bl;
-    /* accent stays the same */
-    nb_browser_queue_draw(b);
-}
-
 static gboolean on_button_press(GtkWidget *w, GdkEventButton *ev, gpointer data) {
     NbBrowser *b = (NbBrowser*)data;
     if (ev->button != 1) return FALSE;
     float mx = (float)ev->x, my = (float)ev->y;
+    GdkWindow *gwin = gtk_widget_get_window(b->window);
 
-    /* Double-click titlebar to maximize/restore */
+    /* ---- Check resize edges first (before hit-test) ---- */
+    if (!b->maximized) {
+        GdkWindowEdge edge = get_resize_edge(b, mx, my);
+        if ((int)edge >= 0) {
+            gdk_window_begin_resize_drag(gwin, edge,
+                ev->button, (int)ev->x_root, (int)ev->y_root, ev->time);
+            return TRUE;
+        }
+    }
+
+    /* Double-click titlebar → maximize/restore */
     if (ev->type == GDK_2BUTTON_PRESS) {
         NbHitRect h = hit_find(b, mx, my);
         if (h.zone == ZONE_TITLEBAR) {
@@ -1277,7 +1367,7 @@ static gboolean on_button_press(GtkWidget *w, GdkEventButton *ev, gpointer data)
     switch (h.zone) {
 
     case ZONE_CLOSE:
-        gtk_main_quit();
+        gtk_window_close(GTK_WINDOW(b->window));
         return TRUE;
 
     case ZONE_MAXIMIZE:
@@ -1290,11 +1380,9 @@ static gboolean on_button_press(GtkWidget *w, GdkEventButton *ev, gpointer data)
         return TRUE;
 
     case ZONE_TITLEBAR:
-        /* Start window drag */
-        b->dragging = 1;
-        b->drag_start_x = (int)mx;
-        b->drag_start_y = (int)my;
-        gtk_widget_grab_focus(b->canvas);
+        /* Use GDK move drag — correct way to move a CSD/frameless window */
+        gdk_window_begin_move_drag(gwin, ev->button,
+            (int)ev->x_root, (int)ev->y_root, ev->time);
         return TRUE;
 
     case ZONE_TAB_CLOSE: {
@@ -1319,49 +1407,24 @@ static gboolean on_button_press(GtkWidget *w, GdkEventButton *ev, gpointer data)
         return TRUE;
     }
 
-    case ZONE_BTN_NEW_TAB:
-        nb_browser_new_tab(b, "about:blank");
-        return TRUE;
-
-    case ZONE_BTN_BACK:
-        nb_browser_go_back(b);
-        return TRUE;
-
-    case ZONE_BTN_FORWARD:
-        nb_browser_go_forward(b);
-        return TRUE;
-
-    case ZONE_BTN_RELOAD:
-        nb_browser_reload(b);
-        return TRUE;
-
+    case ZONE_BTN_NEW_TAB:   nb_browser_new_tab(b, "about:blank");  return TRUE;
+    case ZONE_BTN_BACK:      nb_browser_go_back(b);                  return TRUE;
+    case ZONE_BTN_FORWARD:   nb_browser_go_forward(b);               return TRUE;
+    case ZONE_BTN_RELOAD:    nb_browser_reload(b);                   return TRUE;
     case ZONE_BTN_STOP:
         if (b->active_tab) { b->active_tab->loading = 0; nb_browser_queue_draw(b); }
         return TRUE;
-
-    case ZONE_BTN_HOME:
-        navigate_active(b, b->home_url);
-        return TRUE;
+    case ZONE_BTN_HOME:      navigate_active(b, b->home_url);        return TRUE;
 
     case ZONE_BTN_ZOOM_IN:
-        if (b->active_tab) {
-            b->active_tab->render_state.scale += 0.1f;
-            nb_browser_queue_draw(b);
-        }
+        if (b->active_tab) { b->active_tab->render_state.scale += 0.1f; nb_browser_queue_draw(b); }
         return TRUE;
-
     case ZONE_BTN_ZOOM_OUT:
         if (b->active_tab && b->active_tab->render_state.scale > 0.2f) {
-            b->active_tab->render_state.scale -= 0.1f;
-            nb_browser_queue_draw(b);
-        }
+            b->active_tab->render_state.scale -= 0.1f; nb_browser_queue_draw(b); }
         return TRUE;
-
     case ZONE_BTN_ZOOM_RESET:
-        if (b->active_tab) {
-            b->active_tab->render_state.scale = 1.0f;
-            nb_browser_queue_draw(b);
-        }
+        if (b->active_tab) { b->active_tab->render_state.scale = 1.0f; nb_browser_queue_draw(b); }
         return TRUE;
 
     case ZONE_BTN_SETTINGS:
@@ -1371,20 +1434,15 @@ static gboolean on_button_press(GtkWidget *w, GdkEventButton *ev, gpointer data)
 
     case ZONE_SETTINGS_CLOSE:
         b->settings_open = 0;
-        /* Save settings */
-        {
-            char cfg[512];
-            const char *home = g_get_home_dir();
-            snprintf(cfg, sizeof(cfg), "%s/.nishant-browser.conf", home);
-            nb_theme_save(&b->theme, cfg);
-        }
+        {   char cfg[512];
+            snprintf(cfg, sizeof(cfg), "%s/.nishant-browser.conf", g_get_home_dir());
+            nb_theme_save(&b->theme, cfg); }
         nb_browser_queue_draw(b);
         return TRUE;
 
     case ZONE_URL_BAR:
         b->url_focused = 1;
         gtk_widget_grab_focus(b->canvas);
-        /* Select all on first click */
         b->url_sel_start = 0;
         b->url_sel_end   = (int)strlen(b->url_edit);
         b->url_cursor    = b->url_sel_end;
@@ -1393,7 +1451,6 @@ static gboolean on_button_press(GtkWidget *w, GdkEventButton *ev, gpointer data)
 
     case ZONE_CONTENT:
         b->url_focused = 0;
-        /* Click in content — hit test for links */
         if (b->active_tab && b->active_tab->layout) {
             float cx2 = mx - b->content_x + b->scroll_x;
             float cy2 = my - b->content_y + b->scroll_y;
@@ -1429,8 +1486,7 @@ static gboolean on_button_press(GtkWidget *w, GdkEventButton *ev, gpointer data)
 }
 
 static gboolean on_button_release(GtkWidget *w, GdkEventButton *ev, gpointer data) {
-    NbBrowser *b = (NbBrowser*)data;
-    b->dragging = 0;
+    (void)w; (void)ev; (void)data;
     return FALSE;
 }
 
@@ -1633,16 +1689,10 @@ int nb_browser_run(int argc, char **argv) {
     gtk_window_set_title(GTK_WINDOW(b->window), "Nishant Browser");
     gtk_window_set_default_size(GTK_WINDOW(b->window), b->win_w, b->win_h);
 
-    /* Remove ALL OS window decorations — this is the key line */
+    /* Remove ALL OS window decorations */
     gtk_window_set_decorated(GTK_WINDOW(b->window), FALSE);
 
-    /* Make background transparent so rounded corners work */
-    gtk_widget_set_app_paintable(b->window, TRUE);
-    GdkScreen *screen = gtk_widget_get_screen(b->window);
-    GdkVisual *visual = gdk_screen_get_rgba_visual(screen);
-    if (visual) gtk_widget_set_visual(b->window, visual);
-
-    /* Allow resize by keeping window resizable */
+    /* Opaque background — no transparency needed for classic style */
     gtk_window_set_resizable(GTK_WINDOW(b->window), TRUE);
 
     /* ---- Single full-window drawing area ---- */
@@ -1692,3 +1742,4 @@ int nb_browser_run(int argc, char **argv) {
     free(b);
     return 0;
 }
+
