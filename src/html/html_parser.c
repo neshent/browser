@@ -1,4 +1,4 @@
-#include "html_parser.h"
+﻿#include "html_parser.h"
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
@@ -150,7 +150,7 @@ static void pop(Parser *p) { if (p->stack_top >= 0) p->stack_top--; }
 /* Pop until we've closed tag (inclusive) */
 static void pop_to(Parser *p, const char *tag) {
     for (int i = p->stack_top; i >= 0; i--) {
-        if (p->stack[i]->type == NODE_ELEMENT && strcmp(p->stack[i]->tag, tag)==0) {
+        if (p->stack[i]->type == NB_NODE_ELEMENT && strcmp(p->stack[i]->tag, tag)==0) {
             p->stack_top = i - 1;
             return;
         }
@@ -160,7 +160,7 @@ static void pop_to(Parser *p, const char *tag) {
 /* Check if tag is open anywhere in stack */
 static int is_open(Parser *p, const char *tag) {
     for (int i = p->stack_top; i >= 0; i--)
-        if (p->stack[i]->type == NODE_ELEMENT && strcmp(p->stack[i]->tag, tag)==0) return 1;
+        if (p->stack[i]->type == NB_NODE_ELEMENT && strcmp(p->stack[i]->tag, tag)==0) return 1;
     return 0;
 }
 

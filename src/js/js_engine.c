@@ -1,4 +1,4 @@
-#include "js_engine.h"
+﻿#include "js_engine.h"
 #include "../net/http.h"
 #include <stdlib.h>
 #include <string.h>
@@ -65,7 +65,7 @@ static JSValue js_node_get_innerHTML(JSContext *ctx, JSValueConst this_val) {
     /* Simple serialisation — just collect text content */
     char buf[8192]; buf[0]='\0'; size_t pos=0;
     for (NbNode *c=n->first_child; c; c=c->next_sibling) {
-        if (c->type==NODE_TEXT && c->text) {
+        if (c->type==NB_NODE_TEXT && c->text) {
             size_t l=strlen(c->text);
             if (pos+l<sizeof(buf)-1) { memcpy(buf+pos,c->text,l); pos+=l; }
         }
@@ -101,7 +101,7 @@ static JSValue js_node_get_textContent(JSContext *ctx, JSValueConst this_val) {
     if (!n) return JS_NULL;
     char buf[4096]; buf[0]='\0'; size_t pos=0;
     for (NbNode *c=n->first_child; c; c=c->next_sibling)
-        if (c->type==NODE_TEXT && c->text) {
+        if (c->type==NB_NODE_TEXT && c->text) {
             size_t l=strlen(c->text);
             if (pos+l<sizeof(buf)-1) { memcpy(buf+pos,c->text,l); pos+=l; }
         }
@@ -163,11 +163,11 @@ static JSValue node_to_js(JSContext *ctx, NbNode *node) {
     JS_SetOpaque(obj, node);
 
     /* Properties */
-    const char *tag = (node->type==NODE_ELEMENT && node->tag) ? node->tag : "";
+    const char *tag = (node->type==NB_NODE_ELEMENT && node->tag) ? node->tag : "";
     JS_SetPropertyStr(ctx, obj, "tagName",     JS_NewString(ctx, tag));
     JS_SetPropertyStr(ctx, obj, "nodeName",    JS_NewString(ctx, tag));
     JS_SetPropertyStr(ctx, obj, "nodeType",
-        JS_NewInt32(ctx, node->type==NODE_ELEMENT ? 1 : node->type==NODE_TEXT ? 3 : 8));
+        JS_NewInt32(ctx, node->type==NB_NODE_ELEMENT ? 1 : node->type==NB_NODE_TEXT ? 3 : 8));
     JS_SetPropertyStr(ctx, obj, "id",
         JS_NewString(ctx, nb_attr_val(node,"id") ? nb_attr_val(node,"id") : ""));
     JS_SetPropertyStr(ctx, obj, "className",
@@ -240,7 +240,7 @@ static JSValue js_doc_set_title(JSContext *ctx, JSValueConst this_val, JSValueCo
     NbJsEngine *eng = (NbJsEngine*)JS_GetContextOpaque(ctx);
     if (!eng) return JS_UNDEFINED;
     NbNode *title = nb_doc_by_tag(eng->doc->root, "title");
-    if (title && title->first_child && title->first_child->type==NODE_TEXT) {
+    if (title && title->first_child && title->first_child->type==NB_NODE_TEXT) {
         const char *s = JS_ToCString(ctx, val);
         if (s) { title->first_child->text = nb_arena_strdup(eng->doc->arena, s); JS_FreeCString(ctx,s); }
     }
@@ -441,11 +441,11 @@ void nb_js_engine_free(NbJsEngine *eng) {
 /* Collect all <script> text recursively */
 static void collect_scripts(NbNode *node, char **out, size_t *out_len, size_t *cap) {
     if (!node) return;
-    if (node->type==NODE_ELEMENT && strcmp(node->tag,"script")==0) {
+    if (node->type==NB_NODE_ELEMENT && strcmp(node->tag,"script")==0) {
         /* skip external scripts */
         if (nb_attr_val(node,"src")) return;
         for (NbNode *c=node->first_child; c; c=c->next_sibling) {
-            if (c->type==NODE_TEXT && c->text) {
+            if (c->type==NB_NODE_TEXT && c->text) {
                 size_t l = strlen(c->text);
                 if (*out_len+l+2 > *cap) {
                     *cap = (*out_len+l+2)*2+4096;

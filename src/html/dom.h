@@ -10,11 +10,11 @@
  */
 
 typedef enum {
-    NODE_DOCUMENT,
-    NODE_ELEMENT,
-    NODE_TEXT,
-    NODE_COMMENT,
-    NODE_DOCTYPE
+    NB_NODE_DOCUMENT,
+    NB_NODE_ELEMENT,
+    NB_NODE_TEXT,
+    NB_NODE_COMMENT,
+    NB_NODE_DOCTYPE
 } NbNodeType;
 
 typedef struct NbAttr {

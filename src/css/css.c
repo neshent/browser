@@ -1,4 +1,4 @@
-#include "css.h"
+﻿#include "css.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -249,7 +249,7 @@ void nb_css_free(NbStylesheet *ss) {
 
 static int match_simple(NbNode *node, const char *sel) {
     if (!sel || !*sel) return 0;
-    if (strcmp(sel,"*")==0) return (node->type==NODE_ELEMENT);
+    if (strcmp(sel,"*")==0) return (node->type==NB_NODE_ELEMENT);
     if (sel[0]=='#') {
         const char *id = nb_attr_val(node,"id");
         return id && strcmp(id, sel+1)==0;
@@ -292,7 +292,7 @@ static int match_simple(NbNode *node, const char *sel) {
         }
     }
     /* tag[.class][#id] compound */
-    if (node->type != NODE_ELEMENT) return 0;
+    if (node->type != NB_NODE_ELEMENT) return 0;
     char tag[64]={0}; size_t ti=0;
     const char *s = sel;
     while (*s && *s!='.' && *s!='#' && *s!='[' && *s!=':' && ti<63) tag[ti++]=*s++;
@@ -317,7 +317,7 @@ static int match_simple(NbNode *node, const char *sel) {
 }
 
 static int selector_matches(NbNode *node, const char *selector) {
-    if (!node || node->type!=NODE_ELEMENT || !selector) return 0;
+    if (!node || node->type!=NB_NODE_ELEMENT || !selector) return 0;
     /* split by combinator ' ' or '>' right-to-left */
     char *sel = strdup(selector);
     /* walk tokens right to left */
@@ -353,14 +353,14 @@ static int selector_matches(NbNode *node, const char *selector) {
     /* match remaining parts against ancestors */
     NbNode *cur = node->parent;
     for (int i=np-2; i>=0; i--) {
-        if (!cur || cur->type==NODE_DOCUMENT) { free(sel); return 0; }
+        if (!cur || cur->type==NB_NODE_DOCUMENT) { free(sel); return 0; }
         if (combinators[i+1]=='>') {
             if (!match_simple(cur, parts[i])) { free(sel); return 0; }
             cur = cur->parent;
         } else {
             /* descendant — any ancestor */
             int found=0;
-            while (cur && cur->type!=NODE_DOCUMENT) {
+            while (cur && cur->type!=NB_NODE_DOCUMENT) {
                 if (match_simple(cur, parts[i])) { found=1; cur=cur->parent; break; }
                 cur=cur->parent;
             }
@@ -492,7 +492,7 @@ static int specificity(const char *sel) {
 static void apply_to_node(NbNode *node, NbStylesheet *ua, NbStylesheet *page,
                            NbArena *style_arena, NbStyle *parent_style) {
     if (!node) return;
-    if (node->type == NODE_ELEMENT) {
+    if (node->type == NB_NODE_ELEMENT) {
         NbStyle *s = nb_arena_alloc0(style_arena, sizeof(NbStyle));
         *s = initial_style();
 

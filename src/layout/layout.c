@@ -1,4 +1,4 @@
-#include "layout.h"
+﻿#include "layout.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -43,7 +43,7 @@ static float box_margin_h(NbBox *b) { return b->margin_left  + b->margin_right; 
 static NbBox *build_box(NbArena *a, NbNode *node, NbBox *parent_box) {
     if (!node) return NULL;
 
-    if (node->type == NODE_TEXT) {
+    if (node->type == NB_NODE_TEXT) {
         /* Text nodes — only if non-empty */
         if (!node->text || !node->text[0]) return NULL;
         /* Skip pure-whitespace when parent is block */
@@ -60,7 +60,7 @@ static NbBox *build_box(NbArena *a, NbNode *node, NbBox *parent_box) {
         return tb;
     }
 
-    if (node->type != NODE_ELEMENT) {
+    if (node->type != NB_NODE_ELEMENT) {
         /* recurse into document node */
         NbBox *dummy = box_new(a, node, BOX_BLOCK);
         for (NbNode *c = node->first_child; c; c = c->next_sibling) {

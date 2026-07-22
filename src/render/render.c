@@ -1,4 +1,4 @@
-#include "render.h"
+﻿#include "render.h"
 #include <string.h>
 #include <stdio.h>
 #include <math.h>
@@ -140,7 +140,7 @@ static void paint_box(cairo_t *cr, NbBox *box, float ox, float oy) {
     }
 
     /* ---- img element ---- */
-    if (box->node && box->node->type == NODE_ELEMENT &&
+    if (box->node && box->node->type == NB_NODE_ELEMENT &&
         strcmp(box->node->tag, "img") == 0) {
         /* Draw placeholder box with alt text */
         CssColor border_clr = {180,180,180,255,0};
@@ -162,7 +162,7 @@ static void paint_box(cairo_t *cr, NbBox *box, float ox, float oy) {
     }
 
     /* ---- hr element ---- */
-    if (box->node && box->node->type == NODE_ELEMENT &&
+    if (box->node && box->node->type == NB_NODE_ELEMENT &&
         strcmp(box->node->tag, "hr") == 0) {
         cairo_set_source_rgba(cr, 0.7,0.7,0.7,1);
         cairo_set_line_width(cr, 1);
@@ -172,7 +172,7 @@ static void paint_box(cairo_t *cr, NbBox *box, float ox, float oy) {
     }
 
     /* ---- input/button element ---- */
-    if (box->node && box->node->type == NODE_ELEMENT) {
+    if (box->node && box->node->type == NB_NODE_ELEMENT) {
         const char *tag = box->node->tag;
         if (strcmp(tag,"input")==0 || strcmp(tag,"textarea")==0 || strcmp(tag,"select")==0) {
             CssColor border = {160,160,160,255,0};

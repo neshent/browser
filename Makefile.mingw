@@ -16,12 +16,17 @@ CAIRO_LIBS  := $(shell $(PKG) --libs   cairo)
 PANGO_CFLAGS:= $(shell $(PKG) --cflags pangocairo)
 PANGO_LIBS  := $(shell $(PKG) --libs   pangocairo)
 
+OPENSSL_CFLAGS := $(shell $(PKG) --cflags openssl 2>/dev/null)
+OPENSSL_LIBS   := $(shell $(PKG) --libs   openssl 2>/dev/null)
+
 CFLAGS = -std=gnu11 -O2 -Wall -Wextra -Wno-unused-parameter \
-         -Wno-unused-function \
+         -Wno-unused-function -Wno-sign-compare \
          $(GTK_CFLAGS) $(CAIRO_CFLAGS) $(PANGO_CFLAGS) \
+         $(OPENSSL_CFLAGS) \
          -Isrc -D_WIN32_WINNT=0x0601
 
 LIBS   = $(GTK_LIBS) $(CAIRO_LIBS) $(PANGO_LIBS) \
+         $(OPENSSL_LIBS) \
          -lws2_32 -lm -lpthread -mwindows
 
 SRCS = src/main.c                \
