@@ -1,0 +1,17 @@
+# Build output
+nishant-browser
+nishant-browser.exe
+*.o
+
+# QuickJS built library (clone + build separately)
+third_party/quickjs/
+
+# IDE / editor
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
