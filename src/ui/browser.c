@@ -1188,10 +1188,10 @@ static void draw_content(cairo_t *cr, NbBrowser *b) {
     float cw = b->content_w, ch = b->content_h;
     if (cw <= 0 || ch <= 0) return;
 
+    /* Clip to content area */
     cairo_save(cr);
     cairo_rectangle(cr, cx, cy, cw, ch);
     cairo_clip(cr);
-    cairo_translate(cr, cx, cy);
 
     NbTab *tab = b->active_tab;
     if (!tab) {
@@ -1200,10 +1200,11 @@ static void draw_content(cairo_t *cr, NbBrowser *b) {
     }
     if (tab->loading) {
         cr_set_rgb(cr, 1,1,1); cairo_paint(cr);
-        cr_text_in_box(cr, 0, 0, cw, ch, "Loading...", 14, "Sans", 0, 0.4f,0.4f,0.4f);
+        cr_text_in_box(cr, cx, cy, cw, ch, "Loading...", 14, "Sans", 0, 0.4f,0.4f,0.4f);
         cairo_restore(cr); return;
     }
     if (tab->error_msg[0]) {
+        cairo_translate(cr, cx, cy);
         nb_render_error_page(cr, cw, ch, tab->error_msg);
         cairo_restore(cr); return;
     }
@@ -1215,8 +1216,10 @@ static void draw_content(cairo_t *cr, NbBrowser *b) {
     if (fabsf(tab->layout->viewport_width - cw) > 1.0f)
         nb_layout_reflow(tab->layout, cw, ch);
 
-    tab->render_state.scroll_x = b->scroll_x;
-    tab->render_state.scroll_y = b->scroll_y;
+    /* Render — layout is in 0-based coords; shift to content area,
+       then apply scroll so page scrolls within the content viewport */
+    tab->render_state.scroll_x = b->scroll_x - cx;
+    tab->render_state.scroll_y = b->scroll_y - cy;
     nb_render_paint(cr, tab->layout, &tab->render_state);
     hit_add(b, ZONE_CONTENT, -1, 0, 0, cw, ch);
 

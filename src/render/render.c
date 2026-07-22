@@ -260,13 +260,14 @@ void nb_render_paint(cairo_t *cr, NbLayout *layout, NbRenderState *state) {
 
     cairo_save(cr);
 
-    /* Apply scroll offset */
+    /* scroll_x/scroll_y are already adjusted so that (0,0) is the
+       top-left of the content viewport — just translate by -scroll */
     float sx = state ? state->scroll_x : 0;
     float sy = state ? state->scroll_y : 0;
     float sc = (state && state->scale > 0) ? state->scale : 1.0f;
 
     if (sc != 1.0f) cairo_scale(cr, sc, sc);
-    cairo_translate(cr, -sx / sc, -sy / sc);
+    cairo_translate(cr, -sx, -sy);
 
     /* White page background */
     cairo_set_source_rgb(cr, 1, 1, 1);

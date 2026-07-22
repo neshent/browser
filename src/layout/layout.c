@@ -1,9 +1,12 @@
 ﻿/*
- * layout.c — Box model layout engine
+ * layout.c  —  Box layout engine
  *
- * Coordinate system: ALL positions are ABSOLUTE (from viewport top-left).
- * box->x, box->y are absolute pixel positions of the content area.
- * paint_box passes ox=0,oy=0 always; coords are already absolute.
+ * ALL box positions (box->x, box->y) are ABSOLUTE pixel coords from
+ * the viewport top-left (0,0).  The renderer uses them directly.
+ *
+ * layout_block() / layout_flex() return the OUTER height consumed
+ * (border + padding + content + padding + border) NOT including margin.
+ * The caller adds margins separately when advancing its cursor.
  */
 #include "layout.h"
 #include <stdlib.h>
@@ -12,285 +15,257 @@
 #include <math.h>
 
 /* ------------------------------------------------------------------ */
-/*  Box allocation                                                     */
+/*  Helpers                                                            */
 /* ------------------------------------------------------------------ */
 static NbBox *box_new(NbArena *a, NbNode *node, NbBoxType type) {
-    NbBox *b = nb_arena_alloc0(a, sizeof(NbBox));
-    b->node  = node;
-    b->type  = type;
-    b->style = node ? (NbStyle*)node->computed_style : NULL;
+    NbBox *b   = nb_arena_alloc0(a, sizeof(NbBox));
+    b->node    = node;
+    b->type    = type;
+    b->style   = node ? (NbStyle*)node->computed_style : NULL;
     return b;
 }
-
 static void box_append(NbBox *parent, NbBox *child) {
     child->parent = parent;
     child->prev_sibling = parent->last_child;
     if (parent->last_child) parent->last_child->next_sibling = child;
-    else                    parent->first_child = child;
+    else                     parent->first_child = child;
     parent->last_child  = child;
     child->next_sibling = NULL;
 }
-
-/* ------------------------------------------------------------------ */
-/*  Length resolution                                                  */
-/* ------------------------------------------------------------------ */
-static float resolve(CssLength l, float ref, float fs, float vw, float vh) {
+static float rl(CssLength l, float ref, float fs, float vw, float vh) {
     return nb_css_resolve_length(l, ref, fs, vw, vh);
 }
 
 /* ------------------------------------------------------------------ */
-/*  Text width estimate (character-based, Pango measures at render time) */
+/*  Tags whose text content must never produce layout boxes           */
 /* ------------------------------------------------------------------ */
-static float estimate_text_w(const char *text, size_t len, float font_size) {
-    /* Average char width ≈ 0.55 × font_size for proportional fonts */
-    return (float)len * font_size * 0.55f;
+static int tag_is_invisible(const char *tag) {
+    static const char *inv[] = {
+        "script","style","head","meta","link","title",
+        "noscript","template","svg","math", NULL
+    };
+    if (!tag) return 0;
+    for (int i = 0; inv[i]; i++)
+        if (strcmp(inv[i], tag) == 0) return 1;
+    return 0;
 }
 
 /* ------------------------------------------------------------------ */
-/*  Get effective style for a box (walk up if needed)                 */
+/*  Resolve box-model spacing into box fields                         */
 /* ------------------------------------------------------------------ */
-static NbStyle *eff_style(NbBox *box) {
-    return box->style;
-}
-
-/* ------------------------------------------------------------------ */
-/*  Resolve box margins/padding/borders from style                    */
-/* ------------------------------------------------------------------ */
-static void resolve_box_model(NbBox *box, float contain_w, float vw, float vh) {
+static void resolve_spacing(NbBox *box, float cw, float vw, float vh) {
     NbStyle *s = box->style;
     if (!s) return;
-    float fs = s->font_size > 0 ? s->font_size : 16.0f;
+    float fs = s->font_size > 0 ? s->font_size : 16.f;
 
-    box->margin_top    = fmaxf(0, resolve(s->margin_top,    contain_w, fs, vw, vh));
-    box->margin_bottom = fmaxf(0, resolve(s->margin_bottom, contain_w, fs, vw, vh));
-    box->margin_left   = fmaxf(0, resolve(s->margin_left,   contain_w, fs, vw, vh));
-    box->margin_right  = fmaxf(0, resolve(s->margin_right,  contain_w, fs, vw, vh));
+    /* margins */
+    float mt = rl(s->margin_top,    cw,fs,vw,vh); box->margin_top    = mt<0?0:mt;
+    float mb = rl(s->margin_bottom, cw,fs,vw,vh); box->margin_bottom = mb<0?0:mb;
+    float ml = rl(s->margin_left,   cw,fs,vw,vh); box->margin_left   = ml<0?0:ml;
+    float mr = rl(s->margin_right,  cw,fs,vw,vh); box->margin_right  = mr<0?0:mr;
 
-    box->padding_top    = fmaxf(0, resolve(s->padding_top,    contain_w, fs, vw, vh));
-    box->padding_bottom = fmaxf(0, resolve(s->padding_bottom, contain_w, fs, vw, vh));
-    box->padding_left   = fmaxf(0, resolve(s->padding_left,   contain_w, fs, vw, vh));
-    box->padding_right  = fmaxf(0, resolve(s->padding_right,  contain_w, fs, vw, vh));
+    /* padding */
+    float pt = rl(s->padding_top,    cw,fs,vw,vh); box->padding_top    = pt<0?0:pt;
+    float pb = rl(s->padding_bottom, cw,fs,vw,vh); box->padding_bottom = pb<0?0:pb;
+    float pl = rl(s->padding_left,   cw,fs,vw,vh); box->padding_left   = pl<0?0:pl;
+    float pr = rl(s->padding_right,  cw,fs,vw,vh); box->padding_right  = pr<0?0:pr;
 
-    box->border_top    = (s->border_top.style    != BORDER_STYLE_NONE) ? fmaxf(1, s->border_top.width.value)    : 0;
-    box->border_bottom = (s->border_bottom.style != BORDER_STYLE_NONE) ? fmaxf(1, s->border_bottom.width.value) : 0;
-    box->border_left   = (s->border_left.style   != BORDER_STYLE_NONE) ? fmaxf(1, s->border_left.width.value)   : 0;
-    box->border_right  = (s->border_right.style  != BORDER_STYLE_NONE) ? fmaxf(1, s->border_right.width.value)  : 0;
+    /* border — only non-zero if style is set */
+    box->border_top    = s->border_top.style    != BORDER_STYLE_NONE ? fmaxf(0,s->border_top.width.value)    : 0;
+    box->border_bottom = s->border_bottom.style != BORDER_STYLE_NONE ? fmaxf(0,s->border_bottom.width.value) : 0;
+    box->border_left   = s->border_left.style   != BORDER_STYLE_NONE ? fmaxf(0,s->border_left.width.value)   : 0;
+    box->border_right  = s->border_right.style  != BORDER_STYLE_NONE ? fmaxf(0,s->border_right.width.value)  : 0;
 }
 
 /* ------------------------------------------------------------------ */
-/*  Forward declarations                                               */
+/*  Estimate text width (used for inline flow; Pango renders actual)  */
 /* ------------------------------------------------------------------ */
-static float layout_block(NbBox *box, float abs_x, float abs_y,
-                            float contain_w, float vw, float vh);
-static float layout_flex(NbBox *box, float abs_x, float abs_y,
-                          float contain_w, float vw, float vh);
+static float text_width_est(const char *text, size_t len, float fs) {
+    return (float)len * (fs > 0 ? fs : 16.f) * 0.52f;
+}
 
 /* ------------------------------------------------------------------ */
-/*  Inline layout helper — lay inline/text children on lines          */
+/*  Forward declaration                                                */
 /* ------------------------------------------------------------------ */
-static float layout_inline_children(NbBox *parent, float abs_x, float abs_y,
-                                     float contain_w, float vw, float vh) {
-    NbStyle *ps = parent->style;
-    float line_h = (ps && ps->line_height > 0) ? ps->line_height
-                  : (ps && ps->font_size > 0)  ? ps->font_size * 1.4f : 20.0f;
-    float fs     = (ps && ps->font_size > 0)   ? ps->font_size : 16.0f;
+static float do_layout(NbBox *box, float ax, float ay,
+                        float cw, float vw, float vh);
 
-    float cx = 0;   /* current x offset within line, relative to content box */
-    float cy = 0;   /* current y offset, relative to content box */
-    float cur_line_h = line_h;
+/* ------------------------------------------------------------------ */
+/*  Inline formatting context                                          */
+/*  Returns the HEIGHT consumed by laying inline children.            */
+/* ------------------------------------------------------------------ */
+static float layout_inline(NbBox *parent, float ax, float ay,
+                             float avail_w, float vw, float vh) {
+    NbStyle *ps  = parent->style;
+    float base_fs = ps && ps->font_size > 0 ? ps->font_size : 16.f;
+    float line_h  = ps && ps->line_height > 0
+                    ? ps->line_height : base_fs * 1.4f;
+
+    float cx = 0;        /* cursor x within line (0 = left edge of content box) */
+    float cy = 0;        /* cursor y (top of current line, relative to content box) */
+    float cur_lh = line_h;
 
     for (NbBox *c = parent->first_child; c; c = c->next_sibling) {
-        float cw_est = 0;
-        float ch_est = line_h;
+        float cw_est, ch_est;
 
         if (c->type == BOX_TEXT) {
-            cw_est = estimate_text_w(c->text, c->text_len, fs);
-            ch_est = line_h;
+            NbStyle *cs = c->style ? c->style : ps;
+            float fs    = cs && cs->font_size > 0 ? cs->font_size : base_fs;
+            float lh2   = cs && cs->line_height > 0 ? cs->line_height : fs * 1.4f;
+            cw_est = text_width_est(c->text, c->text_len, fs);
+            ch_est = lh2;
         } else {
-            /* inline-block or unknown inline — give it estimated size */
-            NbStyle *cs = c->style;
-            if (cs) {
-                float inner_w = (cs->width.unit != CSS_UNIT_AUTO)
-                                ? resolve(cs->width, contain_w, cs->font_size, vw, vh)
-                                : fminf(200.0f, contain_w);
-                cw_est = inner_w;
-                ch_est = (cs->height.unit != CSS_UNIT_AUTO)
-                         ? resolve(cs->height, contain_w, cs->font_size, vw, vh) : line_h;
-            } else {
-                cw_est = 80; ch_est = line_h;
-            }
+            /* inline-block: do a full layout with 0-based origin, then record size */
+            do_layout(c, 0, 0, avail_w, vw, vh);
+            cw_est = c->width  + c->border_left + c->border_right
+                               + c->padding_left + c->padding_right
+                               + c->margin_left  + c->margin_right;
+            ch_est = c->height + c->border_top  + c->border_bottom
+                               + c->padding_top  + c->padding_bottom
+                               + c->margin_top   + c->margin_bottom;
         }
 
-        /* Wrap to next line if needed */
-        if (cx + cw_est > contain_w && cx > 0) {
-            cy += cur_line_h;
-            cx = 0;
-            cur_line_h = line_h;
+        /* word-wrap: advance to next line if item doesn't fit */
+        if (cw_est < avail_w && cx + cw_est > avail_w && cx > 0) {
+            cy += cur_lh;
+            cx  = 0;
+            cur_lh = line_h;
         }
 
-        /* Position is absolute */
-        c->x      = abs_x + cx;
-        c->y      = abs_y + cy;
+        c->x      = ax + cx;
+        c->y      = ay + cy;
         c->width  = cw_est;
         c->height = ch_est;
 
-        if (ch_est > cur_line_h) cur_line_h = ch_est;
+        if (ch_est > cur_lh) cur_lh = ch_est;
         cx += cw_est;
     }
-
-    return cy + cur_line_h; /* total height used */
+    return cy + cur_lh;   /* total height */
 }
 
 /* ------------------------------------------------------------------ */
-/*  Block layout — returns total outer height (including margins)     */
+/*  Main layout function                                               */
+/*  ax, ay — absolute pixel origin of this box's MARGIN EDGE          */
+/*  Returns outer height (excluding margin).                           */
 /* ------------------------------------------------------------------ */
-static float layout_block(NbBox *box, float abs_x, float abs_y,
-                            float contain_w, float vw, float vh) {
-    NbStyle *s = box->style;
-    if (!s) {
-        /* document root — recurse only */
-        box->x = abs_x; box->y = abs_y;
-        box->width = contain_w; box->height = 0;
-        float cy = abs_y;
+static float do_layout(NbBox *box, float ax, float ay,
+                        float cw, float vw, float vh) {
+    if (!box) return 0;
+
+    /* ---- Document root (no style) ---- */
+    if (!box->style) {
+        box->x = ax; box->y = ay;
+        box->width = cw; box->height = 0;
+        float cursor = ay;
         for (NbBox *c = box->first_child; c; c = c->next_sibling) {
-            float ch = layout_block(c, abs_x, cy, contain_w, vw, vh);
-            cy += ch;
+            float oh = do_layout(c, ax, cursor, cw, vw, vh);
+            float cm = c->style ? (c->margin_top + c->margin_bottom) : 0;
+            cursor += oh + cm;
         }
-        box->height = cy - abs_y;
+        box->height = cursor - ay;
         return box->height;
     }
 
-    float fs = s->font_size > 0 ? s->font_size : 16.0f;
+    NbStyle *s  = box->style;
+    float fs    = s->font_size > 0 ? s->font_size : 16.f;
 
-    resolve_box_model(box, contain_w, vw, vh);
+    resolve_spacing(box, cw, vw, vh);
 
-    /* Account for margin collapse (simplified: just use the margin) */
-    float outer_x = abs_x + box->margin_left;
-    float outer_y = abs_y + box->margin_top;
-
-    /* Content width */
-    float avail_w = contain_w - box->margin_left - box->margin_right
-                               - box->border_left - box->border_right
-                               - box->padding_left - box->padding_right;
-    if (avail_w < 0) avail_w = 0;
-
+    /* content width */
+    float inner = cw - box->margin_left - box->margin_right
+                     - box->border_left - box->border_right
+                     - box->padding_left - box->padding_right;
+    if (inner < 0) inner = 0;
     if (s->width.unit != CSS_UNIT_AUTO) {
-        float explicit_w = resolve(s->width, contain_w, fs, vw, vh);
-        if (explicit_w >= 0) avail_w = explicit_w;
+        float ew = rl(s->width, cw, fs, vw, vh);
+        if (ew >= 0) inner = ew;
     }
 
-    /* Content box starts after border+padding */
-    float content_x = outer_x + box->border_left + box->padding_left;
-    float content_y = outer_y + box->border_top  + box->padding_top;
+    /* absolute position of content box */
+    float cx = ax + box->margin_left + box->border_left + box->padding_left;
+    float cy = ay + box->margin_top  + box->border_top  + box->padding_top;
+    box->x     = cx;
+    box->y     = cy;
+    box->width = inner;
 
-    /* Store absolute position of content box */
-    box->x     = content_x;
-    box->y     = content_y;
-    box->width = avail_w;
+    /* ---- Flexbox ---- */
+    if (box->type == BOX_FLEX) {
+        int row = (s->flex_direction == FLEX_DIR_ROW ||
+                   s->flex_direction == FLEX_DIR_ROW_REVERSE);
+        float content_h = 0;
+        if (row) {
+            float fx = cx;
+            float max_ch = 0;
+            for (NbBox *c = box->first_child; c; c = c->next_sibling) {
+                do_layout(c, fx, cy, inner, vw, vh);
+                float ow = c->width  + c->border_left + c->border_right
+                                     + c->padding_left + c->padding_right
+                                     + c->margin_left  + c->margin_right;
+                float oh = c->height + c->border_top  + c->border_bottom
+                                     + c->padding_top  + c->padding_bottom;
+                fx += ow;
+                if (oh > max_ch) max_ch = oh;
+            }
+            content_h = max_ch;
+        } else {
+            float fy = cy;
+            for (NbBox *c = box->first_child; c; c = c->next_sibling) {
+                float oh = do_layout(c, cx, fy, inner, vw, vh);
+                float cm = c->margin_top + c->margin_bottom;
+                fy += oh + cm;
+            }
+            content_h = fy - cy;
+        }
+        if (s->height.unit != CSS_UNIT_AUTO) {
+            float eh = rl(s->height, 0, fs, vw, vh);
+            if (eh >= 0) content_h = eh;
+        }
+        box->height = fmaxf(0, content_h);
+        return box->border_top + box->padding_top + box->height
+             + box->padding_bottom + box->border_bottom;
+    }
 
-    /* Check if children are purely inline */
-    int has_block_child = 0;
+    /* ---- Inline context: all children are inline/text ---- */
+    int has_block = 0;
     for (NbBox *c = box->first_child; c; c = c->next_sibling) {
         if (c->type == BOX_BLOCK || c->type == BOX_FLEX ||
-            c->type == BOX_TABLE || c->type == BOX_TABLE_ROW) {
-            has_block_child = 1; break;
+            c->type == BOX_TABLE || c->type == BOX_TABLE_ROW ||
+            c->type == BOX_TABLE_CELL) {
+            has_block = 1; break;
         }
     }
 
-    float content_h = 0;
-
-    if (!has_block_child && box->first_child) {
-        /* Inline formatting context */
-        content_h = layout_inline_children(box, content_x, content_y, avail_w, vw, vh);
+    float content_h;
+    if (!has_block && box->first_child) {
+        content_h = layout_inline(box, cx, cy, inner, vw, vh);
     } else {
-        /* Block formatting context — stack children vertically */
-        float cy = content_y;
+        /* ---- Block context ---- */
+        float cursor = cy;
         for (NbBox *c = box->first_child; c; c = c->next_sibling) {
-            float child_outer_h;
-            if (c->type == BOX_FLEX)
-                child_outer_h = layout_flex(c, content_x, cy, avail_w, vw, vh);
-            else if (c->type == BOX_TEXT) {
-                /* Stray text in block context */
+            float oh, cm;
+            if (c->type == BOX_TEXT) {
+                /* stray text node in block context */
                 NbStyle *cs = c->style ? c->style : s;
-                float lh = cs->line_height > 0 ? cs->line_height : cs->font_size * 1.4f;
-                c->x = content_x; c->y = cy;
-                c->width  = estimate_text_w(c->text, c->text_len, cs->font_size);
+                float tfs   = cs->font_size > 0 ? cs->font_size : fs;
+                float lh    = cs->line_height > 0 ? cs->line_height : tfs * 1.4f;
+                c->x = cx; c->y = cursor;
+                c->width  = text_width_est(c->text, c->text_len, tfs);
                 c->height = lh;
-                child_outer_h = lh;
+                oh = lh; cm = 0;
             } else {
-                child_outer_h = layout_block(c, content_x, cy, avail_w, vw, vh);
-                child_outer_h += c->margin_top + c->margin_bottom;
+                oh = do_layout(c, cx, cursor, inner, vw, vh);
+                cm = c->margin_top + c->margin_bottom;
             }
-            cy += child_outer_h;
+            cursor += oh + cm;
         }
-        content_h = cy - content_y;
+        content_h = cursor - cy;
     }
 
-    /* Explicit height overrides */
     if (s->height.unit != CSS_UNIT_AUTO) {
-        float explicit_h = resolve(s->height, 0, fs, vw, vh);
-        if (explicit_h >= 0) content_h = explicit_h;
+        float eh = rl(s->height, 0, fs, vw, vh);
+        if (eh >= 0) content_h = eh;
     }
-
     box->height = fmaxf(0, content_h);
-
-    /* Return outer height for parent to use */
-    float outer_h = box->border_top + box->padding_top
-                  + box->height
-                  + box->padding_bottom + box->border_bottom;
-    return outer_h;
-}
-
-/* ------------------------------------------------------------------ */
-/*  Flex layout                                                        */
-/* ------------------------------------------------------------------ */
-static float layout_flex(NbBox *box, float abs_x, float abs_y,
-                          float contain_w, float vw, float vh) {
-    NbStyle *s = box->style;
-    if (!s) return 0;
-
-    resolve_box_model(box, contain_w, vw, vh);
-
-    float fs = s->font_size > 0 ? s->font_size : 16.0f;
-    float avail_w = contain_w - box->margin_left - box->margin_right
-                               - box->border_left - box->border_right
-                               - box->padding_left - box->padding_right;
-    if (avail_w < 0) avail_w = 0;
-    if (s->width.unit != CSS_UNIT_AUTO) {
-        float ew = resolve(s->width, contain_w, fs, vw, vh);
-        if (ew >= 0) avail_w = ew;
-    }
-
-    float content_x = abs_x + box->margin_left + box->border_left + box->padding_left;
-    float content_y = abs_y + box->margin_top  + box->border_top  + box->padding_top;
-    box->x = content_x; box->y = content_y; box->width = avail_w;
-
-    int is_row = (s->flex_direction == FLEX_DIR_ROW ||
-                  s->flex_direction == FLEX_DIR_ROW_REVERSE);
-
-    float max_h = 0;
-    if (is_row) {
-        float cx = content_x;
-        for (NbBox *c = box->first_child; c; c = c->next_sibling) {
-            float ch = layout_block(c, cx, content_y, avail_w / fmaxf(1, box->width), vw, vh);
-            float cw2 = c->width + c->border_left + c->border_right + c->padding_left + c->padding_right + c->margin_left + c->margin_right;
-            cx += cw2;
-            if (ch > max_h) max_h = ch;
-        }
-    } else {
-        float cy = content_y;
-        for (NbBox *c = box->first_child; c; c = c->next_sibling) {
-            float ch = layout_block(c, content_x, cy, avail_w, vw, vh);
-            cy += ch;
-        }
-        max_h = cy - content_y;
-    }
-
-    if (s->height.unit != CSS_UNIT_AUTO) {
-        float eh = resolve(s->height, 0, fs, vw, vh);
-        if (eh >= 0) max_h = eh;
-    }
-    box->height = fmaxf(0, max_h);
 
     return box->border_top + box->padding_top + box->height
          + box->padding_bottom + box->border_bottom;
@@ -304,41 +279,57 @@ static NbBox *build_box(NbArena *a, NbNode *node, NbBox *parent_box) {
 
     if (node->type == NB_NODE_TEXT) {
         if (!node->text || !node->text[0]) return NULL;
-        /* Skip whitespace-only nodes in block context */
+
+        /* Skip text inside non-visual parent tags */
+        NbNode *par = node->parent;
+        while (par) {
+            if (par->type == NB_NODE_ELEMENT) {
+                if (tag_is_invisible(par->tag)) return NULL;
+                NbStyle *ps = (NbStyle*)par->computed_style;
+                if (ps && ps->display == DISPLAY_NONE) return NULL;
+                break;
+            }
+            par = par->parent;
+        }
+
+        /* Skip pure-whitespace */
         int all_ws = 1;
         for (const char *p = node->text; *p; p++)
-            if (*p != ' ' && *p != '\t' && *p != '\n' && *p != '\r') { all_ws = 0; break; }
+            if ((unsigned char)*p > 32) { all_ws = 0; break; }
         if (all_ws) return NULL;
 
-        NbBox *tb = box_new(a, node, BOX_TEXT);
+        NbBox *tb   = box_new(a, node, BOX_TEXT);
         tb->text     = node->text;
         tb->text_len = strlen(node->text);
-        /* Inherit style from parent */
         if (parent_box) tb->style = parent_box->style;
         return tb;
     }
 
     if (node->type != NB_NODE_ELEMENT) {
-        NbBox *dummy = box_new(a, node, BOX_BLOCK);
+        /* Document node — just recurse */
+        NbBox *root = box_new(a, node, BOX_BLOCK);
         for (NbNode *c = node->first_child; c; c = c->next_sibling) {
-            NbBox *cb = build_box(a, c, dummy);
-            if (cb) box_append(dummy, cb);
+            NbBox *cb = build_box(a, c, root);
+            if (cb) box_append(root, cb);
         }
-        return dummy;
+        return root;
     }
+
+    /* Element */
+    if (tag_is_invisible(node->tag)) return NULL;
 
     NbStyle *st = (NbStyle*)node->computed_style;
     if (!st || st->display == DISPLAY_NONE) return NULL;
 
     NbBoxType btype;
     switch (st->display) {
-        case DISPLAY_FLEX:         btype = BOX_FLEX;         break;
-        case DISPLAY_INLINE_BLOCK: btype = BOX_INLINE_BLOCK; break;
-        case DISPLAY_TABLE:        btype = BOX_TABLE;        break;
-        case DISPLAY_TABLE_ROW:    btype = BOX_TABLE_ROW;    break;
-        case DISPLAY_TABLE_CELL:   btype = BOX_TABLE_CELL;   break;
-        case DISPLAY_INLINE:       btype = BOX_INLINE;       break;
-        default:                   btype = BOX_BLOCK;        break;
+        case DISPLAY_FLEX:            btype = BOX_FLEX;         break;
+        case DISPLAY_INLINE_BLOCK:    btype = BOX_INLINE_BLOCK; break;
+        case DISPLAY_TABLE:           btype = BOX_TABLE;        break;
+        case DISPLAY_TABLE_ROW:       btype = BOX_TABLE_ROW;    break;
+        case DISPLAY_TABLE_CELL:      btype = BOX_TABLE_CELL;   break;
+        case DISPLAY_INLINE:          btype = BOX_INLINE;       break;
+        default:                      btype = BOX_BLOCK;        break;
     }
 
     NbBox *b = box_new(a, node, btype);
@@ -361,11 +352,9 @@ NbLayout *nb_layout_build(NbDocument *doc, float vw, float vh) {
     layout->root = build_box(layout->arena, doc->root, NULL);
     if (!layout->root) { nb_layout_free(layout); return NULL; }
 
-    /* Layout from absolute origin (0,0) */
-    layout->root->x = 0; layout->root->y = 0;
-    layout->root->width = vw;
-    layout_block(layout->root, 0, 0, vw, vw, vh);
-
+    layout->root->x = 0;
+    layout->root->y = 0;
+    do_layout(layout->root, 0, 0, vw, vw, vh);
     return layout;
 }
 
@@ -373,9 +362,9 @@ void nb_layout_reflow(NbLayout *layout, float vw, float vh) {
     if (!layout || !layout->root) return;
     layout->viewport_width  = vw;
     layout->viewport_height = vh;
-    layout->root->x = 0; layout->root->y = 0;
-    layout->root->width = vw;
-    layout_block(layout->root, 0, 0, vw, vw, vh);
+    layout->root->x = 0;
+    layout->root->y = 0;
+    do_layout(layout->root, 0, 0, vw, vw, vh);
 }
 
 void nb_layout_free(NbLayout *layout) {
@@ -384,19 +373,20 @@ void nb_layout_free(NbLayout *layout) {
     free(layout);
 }
 
-/* Hit-test: find deepest box at (x,y) — coords are absolute */
 NbBox *nb_layout_box_at(NbLayout *layout, float x, float y) {
     if (!layout || !layout->root) return NULL;
-    NbBox *best = NULL;
-    NbBox *stack[512]; int top = 0;
+    NbBox *best  = NULL;
+    NbBox *stack[512];
+    int    top   = 0;
     stack[top++] = layout->root;
     while (top > 0) {
         NbBox *b = stack[--top];
-        /* Box rect: x,y is content origin; include padding/border for hit area */
         float bx = b->x - b->border_left - b->padding_left;
         float by = b->y - b->border_top  - b->padding_top;
-        float bw = b->width  + b->border_left + b->border_right + b->padding_left + b->padding_right;
-        float bh = b->height + b->border_top  + b->border_bottom + b->padding_top + b->padding_bottom;
+        float bw = b->width  + b->border_left + b->border_right
+                             + b->padding_left + b->padding_right;
+        float bh = b->height + b->border_top  + b->border_bottom
+                             + b->padding_top  + b->padding_bottom;
         if (x >= bx && x <= bx+bw && y >= by && y <= by+bh) {
             best = b;
             for (NbBox *c = b->first_child; c; c = c->next_sibling)
